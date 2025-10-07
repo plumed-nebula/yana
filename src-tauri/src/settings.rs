@@ -1,0 +1,132 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use crate::process::{PngCompressionMode, PngOptimizationLevel};
+use serde::{Deserialize, Serialize};
+use tauri::Manager;
+use tracing::{error, info};
+
+const SETTINGS_FILE: &str = "settings.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsPayload {
+    pub quality: u8,
+    pub convert_to_webp: bool,
+    pub force_animated_webp: bool,
+    #[serde(default)]
+    pub png_mode: PngCompressionMode,
+    #[serde(default)]
+    pub png_optimization: PngOptimizationLevel,
+}
+
+impl Default for SettingsPayload {
+    fn default() -> Self {
+        Self {
+            quality: 80,
+            convert_to_webp: false,
+            force_animated_webp: false,
+            png_mode: PngCompressionMode::default(),
+            png_optimization: PngOptimizationLevel::default(),
+        }
+    }
+}
+
+impl SettingsPayload {
+    fn clamped(self) -> Self {
+        Self {
+            quality: self.quality.min(100),
+            convert_to_webp: self.convert_to_webp,
+            force_animated_webp: self.force_animated_webp,
+            png_mode: self.png_mode,
+            png_optimization: self.png_optimization,
+        }
+    }
+}
+
+fn ensure_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| format!("app_config_dir: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("create_dir_all {}: {e}", dir.display()))?;
+    Ok(dir.join(SETTINGS_FILE))
+}
+
+fn read_payload(path: &Path) -> Result<SettingsPayload, String> {
+    if !path.exists() {
+        return Ok(SettingsPayload::default());
+    }
+    let text = fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let parsed: SettingsPayload =
+        serde_json::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))?;
+    Ok(parsed.clamped())
+}
+
+fn write_payload(path: &Path, payload: SettingsPayload) -> Result<(), String> {
+    let sanitized = payload.clamped();
+    let text =
+        serde_json::to_string_pretty(&sanitized).map_err(|e| format!("serialize settings: {e}"))?;
+    fs::write(path, text).map_err(|e| format!("write {}: {e}", path.display()))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, String> {
+    let path = ensure_config_path(&app)?;
+    match read_payload(&path) {
+        Ok(payload) => {
+            info!(path = %path.display(), "load_settings success");
+            Ok(payload)
+        }
+        Err(err) => {
+            error!(path = %path.display(), %err, "load_settings failed");
+            Err(err)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn save_settings(app: tauri::AppHandle, settings: SettingsPayload) -> Result<(), String> {
+    let path = ensure_config_path(&app)?;
+    match write_payload(&path, settings) {
+        Ok(()) => {
+            info!(path = %path.display(), "save_settings success");
+            Ok(())
+        }
+        Err(err) => {
+            error!(path = %path.display(), %err, "save_settings failed");
+            Err(err)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_settings_serialization() {
+        let settings = SettingsPayload {
+            quality: 75,
+            convert_to_webp: true,
+            force_animated_webp: false,
+            png_mode: PngCompressionMode::Lossless,
+            png_optimization: PngOptimizationLevel::Default,
+        };
+
+        let json = serde_json::to_string_pretty(&settings).unwrap();
+        println!("Serialized JSON:\n{}", json);
+
+        // 验证字段名是驼峰式
+        assert!(json.contains("\"quality\""));
+        assert!(json.contains("\"convertToWebp\""));
+        assert!(json.contains("\"forceAnimatedWebp\""));
+
+        // 反序列化验证
+        let deserialized: SettingsPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.quality, 75);
+        assert_eq!(deserialized.convert_to_webp, true);
+        assert_eq!(deserialized.force_animated_webp, false);
+    }
+}
