@@ -47,6 +47,8 @@ function sanitizePngOptimization(value: unknown): PngOptimizationLevel {
 function normalizePayload(
   payload: Partial<PersistedSettings> | null | undefined
 ): PersistedSettings {
+  const pngModeFromBackend =
+    (payload as any)?.pngCompressionMode ?? (payload as any)?.pngMode;
   return {
     quality: sanitizeQuality(payload?.quality ?? DEFAULTS.quality),
     convertToWebp: Boolean(payload?.convertToWebp ?? DEFAULTS.convertToWebp),
@@ -54,7 +56,7 @@ function normalizePayload(
       payload?.forceAnimatedWebp ?? DEFAULTS.forceAnimatedWebp
     ),
     pngCompressionMode: sanitizePngMode(
-      payload?.pngCompressionMode ?? DEFAULTS.pngCompressionMode
+      pngModeFromBackend ?? DEFAULTS.pngCompressionMode
     ),
     pngOptimization: sanitizePngOptimization(
       payload?.pngOptimization ?? DEFAULTS.pngOptimization
@@ -70,11 +72,13 @@ function createStore() {
 
   let hydrating = true;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingPersist = false;
 
   async function load() {
     if (loading.value) return;
     loading.value = true;
     hydrating = true;
+    pendingPersist = false;
     lastError.value = null;
     try {
       const payload = await invoke<PersistedSettings>('load_settings');
@@ -96,6 +100,13 @@ function createStore() {
       loading.value = false;
       hydrating = false;
       ready.value = true;
+      if (pendingPersist) {
+        const shouldPersist = pendingPersist;
+        pendingPersist = false;
+        if (shouldPersist) {
+          schedulePersist();
+        }
+      }
     }
   }
 
@@ -117,72 +128,45 @@ function createStore() {
   }
 
   function schedulePersist() {
-    if (!ready.value || hydrating) return;
+    if (!ready.value || hydrating) {
+      pendingPersist = true;
+      return;
+    }
+    pendingPersist = false;
     if (persistTimer) clearTimeout(persistTimer);
     persistTimer = setTimeout(() => {
       persistTimer = null;
+      pendingPersist = false;
       void persist();
     }, 400);
   }
 
-  // 独立监听每个字段，避免循环触发
+  // 监听整个 state 对象以简化逻辑并确保触发
   watch(
-    () => state.quality,
-    (newVal) => {
-      console.log('[settings] quality changed:', newVal);
+    state,
+    (newState, oldState) => {
+      console.log('[settings] state changed:', {
+        new: newState,
+        old: oldState,
+      });
+
       // 实时校验并更新
-      const sanitized = sanitizeQuality(newVal);
-      if (sanitized !== newVal) {
-        console.log('[settings] quality sanitized:', sanitized);
-        state.quality = sanitized;
+      const sanitizedQuality = sanitizeQuality(newState.quality);
+      if (sanitizedQuality !== newState.quality) {
+        state.quality = sanitizedQuality;
       }
-      schedulePersist();
-    }
-  );
 
-  watch(
-    () => state.convertToWebp,
-    (enabled) => {
-      console.log('[settings] convertToWebp changed:', enabled);
       // 关闭 WebP 时自动取消动图强制转换
-      if (!enabled && state.forceAnimatedWebp) {
-        console.log('[settings] auto-disabling forceAnimatedWebp');
-        state.forceAnimatedWebp = false;
+      if (!newState.convertToWebp && oldState.convertToWebp) {
+        if (state.forceAnimatedWebp) {
+          console.log('[settings] auto-disabling forceAnimatedWebp');
+          state.forceAnimatedWebp = false;
+        }
       }
-      schedulePersist();
-    }
-  );
 
-  watch(
-    () => state.forceAnimatedWebp,
-    (enabled) => {
-      console.log('[settings] forceAnimatedWebp changed:', enabled);
       schedulePersist();
-    }
-  );
-
-  watch(
-    () => state.pngCompressionMode,
-    (mode) => {
-      const sanitized = sanitizePngMode(mode);
-      if (sanitized !== mode) {
-        state.pngCompressionMode = sanitized;
-        return;
-      }
-      schedulePersist();
-    }
-  );
-
-  watch(
-    () => state.pngOptimization,
-    (opt) => {
-      const sanitized = sanitizePngOptimization(opt);
-      if (sanitized !== opt) {
-        state.pngOptimization = sanitized;
-        return;
-      }
-      schedulePersist();
-    }
+    },
+    { deep: true }
   );
 
   void load();

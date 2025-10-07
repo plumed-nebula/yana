@@ -19,13 +19,15 @@ pub fn run() {
                     Target::new(TargetKind::Stdout),
                     Target::new(TargetKind::Webview),
                 ])
+                .level(log::LevelFilter::Info)
                 .build(),
         )
         .invoke_handler(tauri::generate_handler![
             process::compress_images,
             process::save_files,
             settings::load_settings,
-            settings::save_settings
+            settings::save_settings,
+            settings::open_log_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

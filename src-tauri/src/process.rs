@@ -29,10 +29,10 @@ use image::codecs::png::{
 use image::{
     self, AnimationDecoder, ColorType, DynamicImage, ImageEncoder, ImageFormat, ImageReader,
 };
+use log::{debug, error, info, warn};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use tempfile::Builder as TempFileBuilder;
-use tracing::{debug, error, info, warn};
 use webp::{Encoder as WebpEncoder, PixelLayout}; // adjustable-quality webp
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -82,12 +82,12 @@ enum DetectedKind {
 
 fn read_all_bytes(path: &str) -> Result<Vec<u8>, String> {
     // 直接以字节读取，后续用 guess_format 基于 header 判定真实格式
-    debug!(%path, "read_all_bytes start");
+    debug!("read_all_bytes start: path={}", path);
     let mut f = File::open(path).map_err(|e| format!("open {}: {}", path, e))?;
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)
         .map_err(|e| format!("read {}: {}", path, e))?;
-    debug!(%path, bytes = buf.len(), "read_all_bytes done");
+    debug!("read_all_bytes done: path={}, bytes={}", path, buf.len());
     Ok(buf)
 }
 
@@ -306,7 +306,10 @@ fn process_one(
     png_mode: PngCompressionMode,
     png_optimization: PngOptimizationLevel,
 ) -> Result<PathBuf, String> {
-    info!(%path, %quality, ?mode, force_animated_webp, "process_one start");
+    info!(
+        "process_one start: path={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
+        path, quality, mode, force_animated_webp, png_mode, png_optimization
+    );
     // 读取并判定格式/动图属性
     let bytes = read_all_bytes(path)?;
     let kind = detect_format_and_kind(&bytes)?;
@@ -340,7 +343,10 @@ fn process_one(
         (DetectedKind::Animated(fmt), _) => {
             if force_animated_webp {
                 // 强制将动图转为 WebP：当前实现能力有限，发出警告
-                warn!(%path, ?fmt, "animated-to-webp is enabled: result may not meet expectations");
+                warn!(
+                    "animated-to-webp is enabled: path={}, detected_format={:?}; result may not meet expectations",
+                    path, fmt
+                );
                 match fmt {
                     ImageFormat::WebP => {
                         // 已是 WebP（包含动画 WebP）：直接透传
@@ -372,7 +378,11 @@ fn process_one(
         .into_temp_path()
         .keep()
         .map_err(|e| format!("keep temp: {}", e))?;
-    info!(%path, out=%path_buf.display(), "process_one done");
+    info!(
+        "process_one done: path={}, output={}",
+        path,
+        path_buf.display()
+    );
     Ok(path_buf)
 }
 
@@ -387,14 +397,10 @@ pub async fn compress_images(
 ) -> Result<Vec<String>, String> {
     // 统一限制质量范围到 0..=100
     let q = quality.min(100);
+    let count = paths.len();
     info!(
-        count = paths.len(),
-        %q,
-        ?mode,
-        force_animated_webp,
-        ?png_mode,
-        ?png_optimization,
-        "compress_images start"
+        "compress_images start: count={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
+        count, q, mode, force_animated_webp, png_mode, png_optimization
     );
     // 并行处理但保持顺序：记录原始索引 -> 并行处理；对每项错误记录日志并回退为原图路径
     let indexed: Vec<(usize, String)> = paths.into_iter().enumerate().collect();
@@ -404,7 +410,10 @@ pub async fn compress_images(
             match process_one(&p, q, mode, force_animated_webp, png_mode, png_optimization) {
                 Ok(pb) => (i, pb.to_string_lossy().to_string()),
                 Err(e) => {
-                    error!(index=i, %p, error=%e, "compress failed, fallback to original path");
+                    error!(
+                        "compress failed, fallback to original path: index={}, path={}, error={}",
+                        i, p, e
+                    );
                     // 回退：返回原图路径，保证顺序与长度不变
                     (i, p)
                 }
@@ -414,7 +423,7 @@ pub async fn compress_images(
 
     v.sort_by_key(|(i, _)| *i);
     let out: Vec<String> = v.into_iter().map(|(_, s)| s).collect();
-    info!(count = out.len(), "compress_images done");
+    info!("compress_images done: count={}", out.len());
     Ok(out)
 }
 
@@ -435,10 +444,10 @@ pub async fn save_files(sources: Vec<String>, dests: Vec<String>) -> Result<usiz
         match std::fs::copy(&src, &dst) {
             Ok(_) => {
                 ok += 1;
-                info!(%src, %dst, "save_files: copied");
+                info!("save_files: copied from {} to {}", src, dst);
             }
             Err(e) => {
-                error!(%src, %dst, error=%e, "save_files: copy failed");
+                error!("save_files: copy failed from {} to {}: {}", src, dst, e);
             }
         }
     }

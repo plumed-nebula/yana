@@ -2,9 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::process::{PngCompressionMode, PngOptimizationLevel};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
-use tracing::{error, info};
+use tauri_plugin_opener::OpenerExt;
 
 const SETTINGS_FILE: &str = "settings.json";
 
@@ -15,7 +16,8 @@ pub struct SettingsPayload {
     pub convert_to_webp: bool,
     pub force_animated_webp: bool,
     #[serde(default)]
-    pub png_mode: PngCompressionMode,
+    #[serde(alias = "pngMode")]
+    pub png_compression_mode: PngCompressionMode,
     #[serde(default)]
     pub png_optimization: PngOptimizationLevel,
 }
@@ -26,7 +28,7 @@ impl Default for SettingsPayload {
             quality: 80,
             convert_to_webp: false,
             force_animated_webp: false,
-            png_mode: PngCompressionMode::default(),
+            png_compression_mode: PngCompressionMode::default(),
             png_optimization: PngOptimizationLevel::default(),
         }
     }
@@ -38,7 +40,7 @@ impl SettingsPayload {
             quality: self.quality.min(100),
             convert_to_webp: self.convert_to_webp,
             force_animated_webp: self.force_animated_webp,
-            png_mode: self.png_mode,
+            png_compression_mode: self.png_compression_mode,
             png_optimization: self.png_optimization,
         }
     }
@@ -76,11 +78,15 @@ pub fn load_settings(app: tauri::AppHandle) -> Result<SettingsPayload, String> {
     let path = ensure_config_path(&app)?;
     match read_payload(&path) {
         Ok(payload) => {
-            info!(path = %path.display(), "load_settings success");
+            info!("load_settings success: path={}", path.display());
             Ok(payload)
         }
         Err(err) => {
-            error!(path = %path.display(), %err, "load_settings failed");
+            error!(
+                "load_settings failed: path={}, error={}",
+                path.display(),
+                err
+            );
             Err(err)
         }
     }
@@ -91,14 +97,43 @@ pub fn save_settings(app: tauri::AppHandle, settings: SettingsPayload) -> Result
     let path = ensure_config_path(&app)?;
     match write_payload(&path, settings) {
         Ok(()) => {
-            info!(path = %path.display(), "save_settings success");
+            info!("save_settings success: path={}", path.display());
             Ok(())
         }
         Err(err) => {
-            error!(path = %path.display(), %err, "save_settings failed");
+            error!(
+                "save_settings failed: path={}, error={}",
+                path.display(),
+                err
+            );
             Err(err)
         }
     }
+}
+
+#[tauri::command]
+pub fn open_log_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let path = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("app_log_dir: {e}"))?;
+
+    if let Err(err) = fs::create_dir_all(&path) {
+        error!("open_log_dir create_dir_all failed: {}", err);
+        return Err(format!("create_dir_all {}: {err}", path.display()));
+    }
+
+    let display_path = path.display().to_string();
+    if let Err(err) = app
+        .opener()
+        .open_path(path.to_string_lossy().into_owned(), None::<&str>)
+    {
+        error!("open_log_dir open_path failed: {}", err);
+        return Err(format!("open_path {}: {err}", display_path));
+    }
+
+    info!("open_log_dir success: {}", display_path);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -111,7 +146,7 @@ mod tests {
             quality: 75,
             convert_to_webp: true,
             force_animated_webp: false,
-            png_mode: PngCompressionMode::Lossless,
+            png_compression_mode: PngCompressionMode::Lossless,
             png_optimization: PngOptimizationLevel::Default,
         };
 
@@ -122,11 +157,18 @@ mod tests {
         assert!(json.contains("\"quality\""));
         assert!(json.contains("\"convertToWebp\""));
         assert!(json.contains("\"forceAnimatedWebp\""));
+        assert!(json.contains("\"pngCompressionMode\""));
+        assert!(json.contains("\"pngOptimization\""));
 
         // 反序列化验证
         let deserialized: SettingsPayload = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.quality, 75);
         assert_eq!(deserialized.convert_to_webp, true);
         assert_eq!(deserialized.force_animated_webp, false);
+        assert_eq!(
+            deserialized.png_compression_mode,
+            PngCompressionMode::Lossless
+        );
+        assert_eq!(deserialized.png_optimization, PngOptimizationLevel::Default);
     }
 }

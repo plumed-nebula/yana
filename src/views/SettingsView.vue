@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useSettingsStore } from '../stores/settings';
+import { invoke } from '@tauri-apps/api/core';
+import { info, error as logError } from '@tauri-apps/plugin-log';
 
 const settings = useSettingsStore();
 
@@ -40,6 +42,15 @@ const persistenceMessage = computed(() => {
     return `保存或读取时出现问题：${settings.error.value}`;
   return '设置会自动保存到本地配置目录。';
 });
+
+async function openLogDir() {
+  try {
+    await invoke('open_log_dir');
+    info('Triggered backend to open log directory');
+  } catch (e) {
+    logError(`Failed to open log directory: ${e}`);
+  }
+}
 
 function restoreDefaults() {
   settings.quality.value = 80;
@@ -187,7 +198,10 @@ function restoreDefaults() {
         <div class="status" :class="{ error: !!settings.error.value }">
           {{ persistenceMessage }}
         </div>
-        <button type="button" @click="restoreDefaults">恢复默认</button>
+        <div class="buttons">
+          <button type="button" @click="openLogDir">打开日志目录</button>
+          <button type="button" @click="restoreDefaults">恢复默认</button>
+        </div>
       </footer>
     </div>
   </div>
@@ -351,6 +365,11 @@ footer {
   color: #b21e35;
 }
 
+.buttons {
+  display: flex;
+  gap: 12px;
+}
+
 footer button {
   border: none;
   padding: 10px 18px;
@@ -372,6 +391,9 @@ footer button:hover {
   footer {
     flex-direction: column;
     align-items: stretch;
+  }
+  footer .buttons {
+    display: contents;
   }
   footer button {
     width: 100%;
