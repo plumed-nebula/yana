@@ -1,5 +1,6 @@
 import { reactive, watch, ref, readonly, toRefs } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { info, debug, error as logError } from '@tauri-apps/plugin-log';
 
 type PngCompressionMode = 'lossy' | 'lossless';
 type PngOptimizationLevel = 'best' | 'default' | 'fast';
@@ -23,6 +24,22 @@ const DEFAULTS: PersistedSettings = {
 };
 
 let singleton: ReturnType<typeof createStore> | null = null;
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch (err) {
+    return String(value);
+  }
+}
+
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    const stack = err.stack ? `\n${err.stack}` : '';
+    return `${err.name}: ${err.message}${stack}`;
+  }
+  return String(err);
+}
 
 function sanitizeQuality(input: unknown): number {
   let n = Number(input);
@@ -82,17 +99,17 @@ function createStore() {
     lastError.value = null;
     try {
       const payload = await invoke<PersistedSettings>('load_settings');
-      console.log('[settings] loaded from backend:', payload);
+      await info(`[settings] loaded from backend: ${safeJson(payload)}`);
       const normalized = normalizePayload(payload);
-      console.log('[settings] normalized:', normalized);
+      await info(`[settings] normalized: ${safeJson(normalized)}`);
       state.quality = normalized.quality;
       state.convertToWebp = normalized.convertToWebp;
       state.forceAnimatedWebp = normalized.forceAnimatedWebp;
       state.pngCompressionMode = normalized.pngCompressionMode;
       state.pngOptimization = normalized.pngOptimization;
-      console.log('[settings] state after load:', { ...state });
+      await info(`[settings] state after load: ${safeJson({ ...state })}`);
     } catch (err) {
-      console.error('[settings] load failed', err);
+      await logError(`[settings] load failed: ${describeError(err)}`);
       lastError.value = err instanceof Error ? err.message : String(err);
       // 加载失败时回退到默认值
       Object.assign(state, DEFAULTS);
@@ -122,7 +139,7 @@ function createStore() {
       await invoke('save_settings', { settings: payload });
       lastError.value = null;
     } catch (err) {
-      console.error('[settings] save failed', err);
+      await logError(`[settings] save failed: ${describeError(err)}`);
       lastError.value = err instanceof Error ? err.message : String(err);
     }
   }
@@ -145,10 +162,11 @@ function createStore() {
   watch(
     state,
     (newState, oldState) => {
-      console.log('[settings] state changed:', {
-        new: newState,
-        old: oldState,
-      });
+      const snapshot = {
+        new: { ...newState },
+        old: { ...oldState },
+      };
+      void debug(`[settings] state changed: ${safeJson(snapshot)}`);
 
       // 实时校验并更新
       const sanitizedQuality = sanitizeQuality(newState.quality);
@@ -159,7 +177,7 @@ function createStore() {
       // 关闭 WebP 时自动取消动图强制转换
       if (!newState.convertToWebp && oldState.convertToWebp) {
         if (state.forceAnimatedWebp) {
-          console.log('[settings] auto-disabling forceAnimatedWebp');
+          void info('[settings] auto-disabling forceAnimatedWebp');
           state.forceAnimatedWebp = false;
         }
       }
