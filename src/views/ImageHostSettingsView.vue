@@ -1,33 +1,22 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed } from 'vue';
 import { useImageHostStore } from '../stores/imageHosts';
 
-const store = useImageHostStore();
-const selectedId = ref<string | null>(null);
+const props = defineProps<{
+  pluginId: string | null;
+}>();
 
-const plugins = store.plugins;
-const loading = store.loading;
+const store = useImageHostStore();
+
+void store.ensureLoaded();
+
 const ready = store.ready;
+const loading = store.loading;
 const errorRef = store.error;
 
-watch(
-  () => plugins.value,
-  (list) => {
-    if (!list.length) {
-      selectedId.value = null;
-      return;
-    }
-    const exists = list.some((plugin) => plugin.id === selectedId.value);
-    if (!exists) {
-      selectedId.value = list[0]?.id ?? null;
-    }
-  },
-  { immediate: true }
-);
-
 const activePlugin = computed(() => {
-  if (!selectedId.value) return null;
-  return plugins.value.find((item) => item.id === selectedId.value) ?? null;
+  if (!props.pluginId) return null;
+  return store.getPluginById(props.pluginId) ?? null;
 });
 
 const activeSettings = computed(() => {
@@ -36,9 +25,11 @@ const activeSettings = computed(() => {
   return store.getSettingsState(plugin.id) ?? null;
 });
 
-function selectPlugin(id: string) {
-  selectedId.value = id;
-}
+const activeValues = computed<Record<string, any> | null>(() => {
+  const settings = activeSettings.value;
+  if (!settings) return null;
+  return settings.values as Record<string, any>;
+});
 
 function formatTimestamp(value: number | null): string {
   if (!value) return '尚未保存';
@@ -54,17 +45,10 @@ function formatTimestamp(value: number | null): string {
   }
 }
 
-const persistenceMessage = computed(() => {
-  if (!ready.value) return '正在加载插件配置…';
-  if (loading.value) return '正在读取或保存配置…';
-  if (errorRef.value) return `加载插件时出现问题：${errorRef.value}`;
-  return '插件配置将自动同步到本地存储。';
-});
-
 const supportedTypesText = computed(() => {
   const plugin = activePlugin.value;
   if (!plugin || !plugin.supportedFileTypes?.length) {
-    return '接受任何常见图片格式。';
+    return '接受常见图片格式。';
   }
   return plugin.supportedFileTypes
     .map((item) => {
@@ -84,62 +68,41 @@ function handleManualSave() {
   if (!plugin) return;
   store.saveNow(plugin.id);
 }
-
-const activeValues = computed<Record<string, any> | null>(() => {
-  const settings = activeSettings.value;
-  if (!settings) return null;
-  return settings.values as Record<string, any>;
-});
 </script>
 
 <template>
-  <div class="hosts-layout">
-    <aside class="hosts-sidebar">
-      <header>
-        <h2>可用图床</h2>
-        <p>{{ persistenceMessage }}</p>
+  <div class="host-container">
+    <section class="panel">
+      <header class="panel-head">
+        <h1>图床插件配置</h1>
+        <p>在侧栏选择插件后，可在此调整其参数并自动保存。</p>
       </header>
 
-      <div class="plugin-list" v-if="plugins.length">
-        <button
-          v-for="plugin in plugins"
-          :key="plugin.id"
-          type="button"
-          :class="['plugin-item', { active: plugin.id === selectedId }]"
-          @click="selectPlugin(plugin.id)"
-        >
-          <span class="name">{{ plugin.name }}</span>
-          <span class="meta">{{ plugin.author ?? '官方提供' }}</span>
-        </button>
+      <div v-if="!ready" class="status-block info">正在加载插件列表…</div>
+      <div v-else-if="errorRef" class="status-block error">{{ errorRef }}</div>
+      <div v-else-if="loading && !activePlugin" class="status-block info">
+        正在准备插件信息…
       </div>
-
-      <div v-else class="empty">
-        <p v-if="loading">正在加载图床插件…</p>
-        <p v-else-if="errorRef">{{ errorRef }}</p>
-        <p v-else>暂无可用插件。</p>
+      <div v-else-if="!activePlugin" class="status-block muted">
+        请在侧栏的图床列表中选择需要配置的插件。
       </div>
-    </aside>
-
-    <section class="hosts-content">
-      <div v-if="!ready" class="status">正在初始化插件系统…</div>
-      <div v-else-if="errorRef" class="status error">{{ errorRef }}</div>
-      <div v-else-if="!activePlugin" class="status">
-        请选择要配置的图床插件。
-      </div>
-      <div v-else class="plugin-panel">
-        <header>
-          <div class="title">
-            <h1>{{ activePlugin.name }}</h1>
+      <template v-else>
+        <section class="plugin-summary">
+          <div class="summary-main">
+            <h2>{{ activePlugin.name }}</h2>
             <p v-if="activePlugin.description">
               {{ activePlugin.description }}
             </p>
           </div>
-          <ul class="meta">
-            <li v-if="activePlugin.version">版本 {{ activePlugin.version }}</li>
+          <ul class="summary-meta">
+            <li v-if="activePlugin.author">作者：{{ activePlugin.author }}</li>
+            <li v-if="activePlugin.version">
+              版本：{{ activePlugin.version }}
+            </li>
             <li>脚本来源：{{ activePlugin.sourceUrl }}</li>
             <li>支持格式：{{ supportedTypesText }}</li>
           </ul>
-        </header>
+        </section>
 
         <form class="form" @submit.prevent>
           <fieldset v-if="activeValues" class="fields">
@@ -183,16 +146,19 @@ const activeValues = computed<Record<string, any> | null>(() => {
                     />
                   </template>
                   <template v-else-if="descriptor.type === 'boolean'">
-                    <div class="boolean-toggle">
+                    <label
+                      class="boolean-toggle"
+                      :for="`param-${descriptor.key}`"
+                    >
                       <input
                         :id="`param-${descriptor.key}`"
                         type="checkbox"
                         v-model="activeValues[descriptor.key]"
                       />
-                      <label :for="`param-${descriptor.key}`">
-                        {{ activeValues[descriptor.key] ? '已启用' : '未启用' }}
-                      </label>
-                    </div>
+                      <span>{{
+                        activeValues[descriptor.key] ? '已启用' : '未启用'
+                      }}</span>
+                    </label>
                   </template>
                   <template v-else-if="descriptor.type === 'select'">
                     <select
@@ -244,7 +210,7 @@ const activeValues = computed<Record<string, any> | null>(() => {
           </fieldset>
         </form>
 
-        <footer>
+        <footer class="panel-footer">
           <div
             class="status-text"
             :class="{ error: !!(activeSettings && activeSettings.error) }"
@@ -265,139 +231,89 @@ const activeValues = computed<Record<string, any> | null>(() => {
           </div>
           <button type="button" @click="handleManualSave">立即保存</button>
         </footer>
-      </div>
+      </template>
     </section>
   </div>
 </template>
 
 <style scoped>
-.hosts-layout {
-  display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
-  gap: 28px;
-  width: min(100%, 1080px);
+.host-container {
+  width: min(920px, 100%);
 }
 
-.hosts-sidebar {
-  background: rgba(255, 255, 255, 0.86);
-  border-radius: 20px;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  border: 1px solid rgba(12, 28, 56, 0.12);
-  box-shadow: 0 12px 32px rgba(15, 27, 53, 0.15);
-  backdrop-filter: blur(14px);
-}
-
-.hosts-sidebar header h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  color: #0e1d3c;
-}
-
-.hosts-sidebar header p {
-  margin: 0;
-  color: rgba(14, 29, 60, 0.6);
-  font-size: 13px;
-}
-
-.plugin-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.plugin-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid transparent;
-  background: rgba(17, 35, 68, 0.06);
-  color: #112345;
-  font-weight: 600;
-  transition: background 0.18s ease, transform 0.18s ease,
-    border-color 0.18s ease;
-}
-
-.plugin-item .name {
-  font-size: 16px;
-}
-
-.plugin-item .meta {
-  font-size: 13px;
-  color: rgba(17, 35, 68, 0.7);
-}
-
-.plugin-item:hover {
-  background: rgba(17, 35, 68, 0.12);
-  transform: translateX(2px);
-}
-
-.plugin-item.active {
-  border-color: rgba(17, 35, 68, 0.35);
-  background: rgba(17, 35, 68, 0.18);
-  box-shadow: 0 10px 24px rgba(10, 20, 40, 0.22);
-}
-
-.empty {
-  padding: 20px;
-  font-size: 14px;
-  color: rgba(14, 29, 60, 0.6);
-  background: rgba(17, 35, 68, 0.08);
-  border-radius: 16px;
-}
-
-.hosts-content {
+.panel {
   background: rgba(255, 255, 255, 0.9);
   border-radius: 24px;
   border: 1px solid rgba(12, 28, 56, 0.12);
-  box-shadow: 0 18px 42px rgba(15, 27, 53, 0.18);
+  box-shadow: 0 20px 46px rgba(15, 27, 53, 0.16);
   padding: 32px;
   display: flex;
   flex-direction: column;
   gap: 24px;
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(18px);
 }
 
-.status {
-  font-size: 15px;
-  color: rgba(14, 29, 60, 0.7);
-}
-
-.status.error {
-  color: #b21e35;
-}
-
-.plugin-panel header {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.plugin-panel header .title h1 {
-  margin: 0;
+.panel-head h1 {
+  margin: 0 0 6px;
   font-size: 26px;
   color: #0c1c38;
 }
 
-.plugin-panel header .title p {
+.panel-head p {
   margin: 0;
-  color: rgba(14, 29, 60, 0.65);
+  color: rgba(14, 29, 60, 0.64);
 }
 
-.plugin-panel header .meta {
+.status-block {
+  padding: 18px 20px;
+  border-radius: 14px;
+  font-size: 15px;
+}
+
+.status-block.info {
+  background: rgba(20, 60, 160, 0.08);
+  color: #143ca0;
+}
+
+.status-block.error {
+  background: rgba(178, 30, 53, 0.1);
+  color: #9c1f33;
+}
+
+.status-block.muted {
+  background: rgba(16, 31, 60, 0.06);
+  color: rgba(16, 31, 60, 0.72);
+}
+
+.plugin-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 18px;
+  background: rgba(16, 31, 60, 0.05);
+}
+
+.plugin-summary h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  color: #0c1c38;
+}
+
+.plugin-summary p {
+  margin: 0;
+  color: rgba(14, 29, 60, 0.66);
+}
+
+.summary-meta {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 13px;
-  color: rgba(14, 29, 60, 0.6);
+  color: rgba(14, 29, 60, 0.64);
 }
 
 .fields {
@@ -478,7 +394,7 @@ const activeValues = computed<Record<string, any> | null>(() => {
   height: 18px;
 }
 
-.boolean-toggle label {
+.boolean-toggle span {
   font-weight: 600;
   color: #10203f;
 }
@@ -489,12 +405,12 @@ const activeValues = computed<Record<string, any> | null>(() => {
   font-size: 13px;
 }
 
-footer {
+.panel-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .status-text {
@@ -506,7 +422,7 @@ footer {
   color: #b21e35;
 }
 
-footer button {
+.panel-footer button {
   border: none;
   padding: 10px 18px;
   border-radius: 12px;
@@ -516,21 +432,13 @@ footer button {
   transition: background 0.2s ease;
 }
 
-footer button:hover {
+.panel-footer button:hover {
   background: rgba(17, 33, 63, 0.26);
 }
 
-@media (max-width: 960px) {
-  .hosts-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .hosts-sidebar {
-    order: 2;
-  }
-
-  .hosts-content {
-    order: 1;
+@media (max-width: 640px) {
+  .panel {
+    padding: 26px;
   }
 }
 </style>

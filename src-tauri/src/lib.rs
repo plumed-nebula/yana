@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod image_hosts;
 mod process;
 mod settings;
 mod upload;
@@ -53,6 +54,9 @@ pub fn run() {
             settings::load_settings,
             settings::save_settings,
             settings::open_log_dir,
+            image_hosts::list_image_host_plugins,
+            image_hosts::load_image_host_settings,
+            image_hosts::save_image_host_settings,
             upload::upload_image
         ])
         .run(tauri::generate_context!())

@@ -1,30 +1,100 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import SettingsView from './views/SettingsView.vue';
 import CompressView from './views/CompressView.vue';
+import UploadView from './views/UploadView.vue';
 import ImageHostSettingsView from './views/ImageHostSettingsView.vue';
+import { useImageHostStore } from './stores/imageHosts';
+import type { LoadedPlugin } from './plugins/registry';
 
-type ViewKey = 'compress' | 'settings' | 'hosts';
+type ViewKey = 'compress' | 'upload' | 'hosts' | 'settings';
 
 const VIEWS: Record<ViewKey, any> = {
   compress: CompressView,
+  upload: UploadView,
   settings: SettingsView,
   hosts: ImageHostSettingsView,
 };
 
-const current = ref<ViewKey>('compress');
+const imageHostStore = useImageHostStore();
+
+const current = ref<ViewKey>('upload');
 function onNavigate(key: ViewKey) {
   current.value = key;
 }
 const activeComponent = computed(() => VIEWS[current.value]);
+
+const selectedPluginId = ref<string | null>(null);
+
+type SelectPluginPayload = { id: string; navigate?: boolean } | string;
+
+const pluginList = computed(
+  () => imageHostStore.plugins.value as readonly LoadedPlugin[]
+);
+const pluginLoading = computed(() => imageHostStore.loading.value);
+
+onMounted(() => {
+  void imageHostStore.ensureLoaded();
+});
+
+watch(
+  pluginList,
+  (list) => {
+    const entries = list ?? [];
+    if (!entries.length) {
+      selectedPluginId.value = null;
+      return;
+    }
+    if (!selectedPluginId.value) {
+      selectedPluginId.value = entries[0]?.id ?? null;
+      return;
+    }
+    const exists = entries.some(
+      (plugin) => plugin.id === selectedPluginId.value
+    );
+    if (!exists) {
+      selectedPluginId.value = entries[0]?.id ?? null;
+    }
+  },
+  { immediate: true }
+);
+
+function onSelectPlugin(payload: SelectPluginPayload) {
+  const normalized =
+    typeof payload === 'string' ? { id: payload, navigate: true } : payload;
+  selectedPluginId.value = normalized.id;
+  if (normalized.navigate ?? true) {
+    current.value = 'hosts';
+  }
+}
+
+const viewProps = computed(() => {
+  if (current.value === 'hosts') {
+    return { pluginId: selectedPluginId.value };
+  }
+  if (current.value === 'upload') {
+    return {
+      pluginId: selectedPluginId.value,
+      onSelectPlugin,
+    };
+  }
+  return {};
+});
 </script>
 
 <template>
   <div class="layout">
-    <Sidebar :current="current" @navigate="onNavigate" />
+    <Sidebar
+      :current="current"
+      :plugins="pluginList"
+      :selected-plugin-id="selectedPluginId"
+      :plugin-loading="pluginLoading"
+      @navigate="onNavigate"
+      @select-plugin="onSelectPlugin"
+    />
     <section class="content">
-      <component :is="activeComponent" />
+      <component :is="activeComponent" v-bind="viewProps" />
     </section>
   </div>
 </template>

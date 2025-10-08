@@ -1,12 +1,17 @@
 import { reactive, ref, readonly, watch } from 'vue';
-import { info, error as logError } from '@tauri-apps/plugin-log';
+import { invoke } from '@tauri-apps/api/core';
+import {
+  info,
+  warn as logWarn,
+  error as logError,
+} from '@tauri-apps/plugin-log';
 import {
   createPluginRuntimeContext,
   type PluginParameterDescriptor,
 } from '../types/imageHostPlugin';
 import {
   loadPlugin,
-  PLUGIN_ENTRIES,
+  getPluginEntries,
   type LoadedPlugin,
 } from '../plugins/registry';
 
@@ -70,9 +75,41 @@ function parseStored(raw: string | null): Record<string, unknown> | null {
   return null;
 }
 
+function normalizeBackendPayload(
+  payload: unknown
+): Record<string, unknown> | null {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    return payload as Record<string, unknown>;
+  }
+  if (payload !== null && payload !== undefined) {
+    void logWarn(
+      `[imageHosts] 后端返回的配置不是对象，将忽略: ${JSON.stringify(payload)}`
+    );
+  }
+  return null;
+}
+
+function cloneValues(values: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(values));
+}
+
+function assignValues(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>
+) {
+  for (const key of Object.keys(target)) {
+    if (!(key in source)) {
+      delete target[key];
+    }
+  }
+  for (const [key, value] of Object.entries(source)) {
+    target[key] = value;
+  }
+}
+
 function createStore() {
   const plugins = ref<LoadedPlugin[]>([]);
-  const loading = ref(true);
+  const loading = ref(false);
   const ready = ref(false);
   const error = ref<string | null>(null);
   const settings = reactive<Record<string, PluginSettingsState>>({});
@@ -80,15 +117,94 @@ function createStore() {
   const runtime = createPluginRuntimeContext();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   const hydrating = new Set<string>();
+  const loadErrors = new Map<string, string>();
+  let hasLoaded = false;
+  let loadPromise: Promise<void> | null = null;
+
+  async function hydrateSettings(plugin: LoadedPlugin) {
+    const state = settings[plugin.id];
+    if (!state) return;
+
+    hydrating.add(plugin.id);
+    let stored: Record<string, unknown> | null = null;
+    let migratedFromLegacy = false;
+    let backendError: string | null = null;
+
+    try {
+      try {
+        const payload = await invoke<Record<string, unknown> | null>(
+          'load_image_host_settings',
+          { pluginId: plugin.id }
+        );
+        stored = normalizeBackendPayload(payload);
+      } catch (err) {
+        backendError = err instanceof Error ? err.message : String(err);
+        await logError(
+          `[imageHosts] 读取后端配置失败 (${plugin.id}): ${backendError}`
+        );
+      }
+
+      if (!stored) {
+        const legacyRaw = localStorage.getItem(STORAGE_PREFIX + plugin.id);
+        const legacy = parseStored(legacyRaw);
+        if (legacy) {
+          stored = legacy;
+          migratedFromLegacy = true;
+          await info(`[imageHosts] 迁移旧版配置到后端: ${plugin.id}`);
+        } else if (legacyRaw) {
+          await logWarn(
+            `[imageHosts] 遗留的本地配置无效，已忽略 (${plugin.id})`
+          );
+          localStorage.removeItem(STORAGE_PREFIX + plugin.id);
+        }
+      }
+
+      const normalized = applyDefaults(plugin.parameters ?? [], stored);
+      assignValues(state.values, normalized);
+
+      if (stored) {
+        state.lastSavedAt = Date.now();
+      }
+      state.error = null;
+
+      if (backendError) {
+        loadErrors.set(plugin.id, backendError);
+        error.value = backendError;
+      } else {
+        loadErrors.delete(plugin.id);
+        if (loadErrors.size === 0) {
+          error.value = null;
+        } else {
+          const first = loadErrors.values().next().value ?? null;
+          error.value = first;
+        }
+      }
+
+      if (migratedFromLegacy) {
+        try {
+          await persist(plugin.id);
+        } catch {
+          // persist 已记录错误，继续抛出由 watcher 处理
+        }
+      }
+    } finally {
+      hydrating.delete(plugin.id);
+    }
+  }
 
   async function persist(id: string) {
     const target = settings[id];
     if (!target) return;
     try {
       target.saving = true;
-      localStorage.setItem(STORAGE_PREFIX + id, JSON.stringify(target.values));
+      const payload = cloneValues(target.values);
+      await invoke('save_image_host_settings', {
+        pluginId: id,
+        values: payload,
+      });
       target.lastSavedAt = Date.now();
       target.error = null;
+      localStorage.removeItem(STORAGE_PREFIX + id);
       await info(`[imageHosts] 保存 ${id} 成功`);
     } catch (err) {
       target.error = err instanceof Error ? err.message : String(err);
@@ -108,59 +224,77 @@ function createStore() {
     timers.set(id, handle);
   }
 
-  function ensureSettings(plugin: LoadedPlugin) {
-    if (settings[plugin.id]) return;
+  async function ensureSettings(plugin: LoadedPlugin) {
+    if (!settings[plugin.id]) {
+      const defaults = applyDefaults(plugin.parameters ?? [], null);
+      const values = reactive({ ...defaults });
 
-    const stored = parseStored(
-      localStorage.getItem(STORAGE_PREFIX + plugin.id)
-    );
-    const values = reactive(applyDefaults(plugin.parameters ?? [], stored));
+      const state: PluginSettingsState = reactive({
+        values,
+        saving: false,
+        lastSavedAt: null,
+        error: null,
+      });
 
-    const state: PluginSettingsState = reactive({
-      values,
-      saving: false,
-      lastSavedAt: null,
-      error: null,
-    });
+      hydrating.add(plugin.id);
+      watch(
+        values,
+        () => {
+          if (hydrating.has(plugin.id)) return;
+          schedulePersist(plugin.id);
+        },
+        { deep: true }
+      );
+      hydrating.delete(plugin.id);
 
-    hydrating.add(plugin.id);
-    watch(
-      values,
-      () => {
-        if (hydrating.has(plugin.id)) return;
-        schedulePersist(plugin.id);
-      },
-      { deep: true }
-    );
-    hydrating.delete(plugin.id);
+      settings[plugin.id] = state;
+    }
 
-    settings[plugin.id] = state;
+    await hydrateSettings(plugin);
   }
 
-  async function loadAll() {
-    try {
-      loading.value = true;
-      error.value = null;
-      const loaded: LoadedPlugin[] = [];
-      for (const entry of PLUGIN_ENTRIES) {
-        try {
-          const plugin = await loadPlugin(entry);
-          loaded.push(plugin);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          await logError(`[imageHosts] 加载插件 ${entry.id} 失败: ${message}`);
-        }
-      }
-      plugins.value = loaded;
-      for (const plugin of loaded) {
-        ensureSettings(plugin);
-      }
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : String(err);
-    } finally {
-      loading.value = false;
-      ready.value = true;
+  async function loadAll(force = false) {
+    if (hasLoaded && !force) {
+      return;
     }
+    if (loadPromise) {
+      return loadPromise;
+    }
+
+    loadPromise = (async () => {
+      try {
+        loading.value = true;
+        error.value = null;
+        const entries = await getPluginEntries(force);
+        const loaded: LoadedPlugin[] = [];
+        for (const entry of entries) {
+          try {
+            const plugin = await loadPlugin(entry);
+            loaded.push(plugin);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await logError(
+              `[imageHosts] 加载插件 ${entry.id} 失败: ${message}`
+            );
+          }
+        }
+        plugins.value = loaded;
+        await Promise.all(loaded.map((plugin) => ensureSettings(plugin)));
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : String(err);
+      } finally {
+        loading.value = false;
+        ready.value = true;
+        hasLoaded = error.value === null;
+        loadPromise = null;
+      }
+    })();
+
+    return loadPromise;
+  }
+
+  async function ensureLoaded() {
+    await loadAll();
   }
 
   function getPluginById(id: string): LoadedPlugin | undefined {
@@ -182,7 +316,7 @@ function createStore() {
     void persist(id);
   }
 
-  void loadAll();
+  void ensureLoaded();
 
   return {
     plugins: readonly(plugins),
@@ -190,6 +324,8 @@ function createStore() {
     ready: readonly(ready),
     error: readonly(error),
     runtime,
+    ensureLoaded,
+    reload: () => loadAll(true),
     getPluginById,
     getSettingsState,
     updateSetting,

@@ -37,6 +37,7 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
     if (entry.isDirectory()) {
       await copyDirectory(srcPath, destPath);
     } else if (entry.isFile()) {
+      if (srcPath.endsWith('.ts')) continue;
       await copyFile(srcPath, destPath);
     }
   }
