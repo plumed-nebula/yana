@@ -1,39 +1,53 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref } from 'vue';
+
+type ViewKey = 'compress' | 'settings' | 'hosts';
 
 const props = defineProps<{
-  current: 'compress' | 'settings'
-}>()
+  current: ViewKey;
+}>();
 
 const emit = defineEmits<{
-  (e: 'navigate', key: 'compress' | 'settings'): void
-}>()
+  (e: 'navigate', key: ViewKey): void;
+}>();
 
-const collapsed = ref(false)
+const collapsed = ref(false);
 
-const items = [{
-  key: 'compress' as const,
-  label: '压缩',
-  icon: '🗜️'
-}, {
-  key: 'settings' as const,
-  label: '设置',
-  icon: '⚙️'
-}]
+const items: Array<{ key: ViewKey; label: string; icon: string }> = [
+  {
+    key: 'compress',
+    label: '压缩',
+    icon: '🗜️',
+  },
+  {
+    key: 'hosts',
+    label: '图床',
+    icon: '�️',
+  },
+  {
+    key: 'settings',
+    label: '设置',
+    icon: '⚙️',
+  },
+];
 
 function toggleCollapsed() {
-  collapsed.value = !collapsed.value
+  collapsed.value = !collapsed.value;
 }
 
-function onSelect(key: 'compress' | 'settings') {
-  emit('navigate', key)
+function onSelect(key: ViewKey) {
+  emit('navigate', key);
 }
 
-const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
+const sidebarWidth = computed(() => (collapsed.value ? '64px' : '220px'));
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ collapsed }" :style="{ width: sidebarWidth }">
+  <aside
+    class="sidebar"
+    :class="{ collapsed }"
+    :style="{ width: sidebarWidth }"
+  >
     <div class="brand" @click="collapsed = false">
       <span class="brand-icon">✨</span>
       <transition name="fade">
@@ -60,7 +74,9 @@ const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
     <button class="collapse" type="button" @click="toggleCollapsed">
       <span class="icon">{{ collapsed ? '⮞' : '⮜' }}</span>
       <transition name="fade">
-        <span v-if="!collapsed" class="label">{{ collapsed ? '展开' : '折叠' }}</span>
+        <span v-if="!collapsed" class="label">{{
+          collapsed ? '展开' : '折叠'
+        }}</span>
       </transition>
     </button>
   </aside>
@@ -71,7 +87,11 @@ const sidebarWidth = computed(() => collapsed.value ? '64px' : '220px')
   display: flex;
   flex-direction: column;
   border-right: 1px solid rgba(0, 0, 0, 0.06);
-  background: linear-gradient(180deg, rgba(21, 30, 63, 0.92), rgba(6, 10, 19, 0.94));
+  background: linear-gradient(
+    180deg,
+    rgba(21, 30, 63, 0.92),
+    rgba(6, 10, 19, 0.94)
+  );
   color: #fff;
   transition: width 0.2s ease, box-shadow 0.2s ease;
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);

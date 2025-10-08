@@ -1,12 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import Sidebar from './components/Sidebar.vue'
-import SettingsView from './views/SettingsView.vue'
-import CompressView from './views/CompressView.vue'
+import { computed, ref } from 'vue';
+import Sidebar from './components/Sidebar.vue';
+import SettingsView from './views/SettingsView.vue';
+import CompressView from './views/CompressView.vue';
+import ImageHostSettingsView from './views/ImageHostSettingsView.vue';
 
-const current = ref<'compress' | 'settings'>('compress')
-function onNavigate(key: 'compress' | 'settings') { current.value = key }
-const activeComponent = computed(() => current.value === 'compress' ? CompressView : SettingsView)
+type ViewKey = 'compress' | 'settings' | 'hosts';
+
+const VIEWS: Record<ViewKey, any> = {
+  compress: CompressView,
+  settings: SettingsView,
+  hosts: ImageHostSettingsView,
+};
+
+const current = ref<ViewKey>('compress');
+function onNavigate(key: ViewKey) {
+  current.value = key;
+}
+const activeComponent = computed(() => VIEWS[current.value]);
 </script>
 
 <template>
@@ -16,7 +27,6 @@ const activeComponent = computed(() => current.value === 'compress' ? CompressVi
       <component :is="activeComponent" />
     </section>
   </div>
-  
 </template>
 
 <style scoped>
@@ -37,9 +47,17 @@ const activeComponent = computed(() => current.value === 'compress' ? CompressVi
 </style>
 
 <style>
-:root { color: #0f0f0f; background-color: #f6f6f6; }
-@media (prefers-color-scheme: dark) {
-  :root { color: #f6f6f6; background-color: #2f2f2f; }
+:root {
+  color: #0f0f0f;
+  background-color: #f6f6f6;
 }
-button { cursor: pointer; }
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #f6f6f6;
+    background-color: #2f2f2f;
+  }
+}
+button {
+  cursor: pointer;
+}
 </style>

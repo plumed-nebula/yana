@@ -1,6 +1,8 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod process;
 mod settings;
+mod upload;
+
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,6 +28,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_http::init())
         // 日志：根据环境选择输出目标与日志级别，开发环境输出到控制台/前端，生产仅写文件
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -49,7 +52,8 @@ pub fn run() {
             process::save_files,
             settings::load_settings,
             settings::save_settings,
-            settings::open_log_dir
+            settings::open_log_dir,
+            upload::upload_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
