@@ -454,6 +454,159 @@ pub async fn save_files(sources: Vec<String>, dests: Vec<String>) -> Result<usiz
     Ok(ok)
 }
 
+fn process_data(
+    data: Vec<u8>,
+    quality: u8,
+    mode: Mode,
+    force_animated_webp: bool,
+    png_mode: PngCompressionMode,
+    png_optimization: PngOptimizationLevel,
+) -> Result<PathBuf, String> {
+    info!(
+        "process_data start: data_len={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
+        data.len(),
+        quality,
+        mode,
+        force_animated_webp,
+        png_mode,
+        png_optimization
+    );
+    // 判定格式/动图属性
+    let kind = detect_format_and_kind(&data)?;
+
+    // 在系统临时目录创建输出文件（实际路径在 keep() 之后可被持久化）
+    let mut tmp = TempFileBuilder::new()
+        .prefix("yana_clipboard_")
+        .suffix("")
+        .tempfile()
+        .map_err(|e| format!("tempfile: {}", e))?;
+
+    match (kind, mode) {
+        (DetectedKind::Static(fmt), Mode::original_format) => {
+            let img = ImageReader::new(Cursor::new(&data))
+                .with_guessed_format()
+                .map_err(|e| format!("reader: {}", e))?
+                .decode()
+                .map_err(|e| format!("decode: {}", e))?;
+            let out = encode_to_format(&img, fmt, quality, png_mode, png_optimization)?;
+            tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
+        }
+        (DetectedKind::Static(_), Mode::webp) => {
+            let img = ImageReader::new(Cursor::new(&data))
+                .with_guessed_format()
+                .map_err(|e| format!("reader: {}", e))?
+                .decode()
+                .map_err(|e| format!("decode: {}", e))?;
+            let out = encode_webp_static(&img, quality)?;
+            tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
+        }
+        (DetectedKind::Animated(fmt), _) => {
+            if force_animated_webp {
+                // 强制将动图转为 WebP：当前实现能力有限，发出警告
+                warn!(
+                    "animated-to-webp is enabled: data_len={}, detected_format={:?}; result may not meet expectations",
+                    data.len(),
+                    fmt
+                );
+                match fmt {
+                    ImageFormat::WebP => {
+                        // 已是 WebP（包含动画 WebP）：直接透传
+                        tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
+                    }
+                    _ => {
+                        // 回退：取首帧静态并编码为 WebP
+                        let out = animated_to_webp(&data, quality)?;
+                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
+                    }
+                }
+            } else {
+                // 普通动画化压缩：GIF 重编码为 GIF；动画 WebP 或未知动画保持原样
+                match fmt {
+                    ImageFormat::Gif => {
+                        let out = reencode_gif_frames(&data, quality)?;
+                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
+                    }
+                    _ => {
+                        tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
+                    }
+                }
+            }
+        }
+    }
+
+    // keep() 将临时文件持久化并返回 PathBuf
+    let path_buf = tmp
+        .into_temp_path()
+        .keep()
+        .map_err(|e| format!("keep temp: {}", e))?;
+    info!(
+        "process_data done: data_len={}, output={}",
+        data.len(),
+        path_buf.display()
+    );
+    Ok(path_buf)
+}
+
+#[tauri::command]
+pub async fn compress_image_data(
+    data: Vec<u8>,
+    quality: u8,
+    mode: Mode,
+    force_animated_webp: bool,
+    png_mode: PngCompressionMode,
+    png_optimization: PngOptimizationLevel,
+) -> Result<String, String> {
+    // 统一限制质量范围到 0..=100
+    let q = quality.min(100);
+    info!(
+        "compress_image_data start: data_len={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
+        data.len(),
+        q,
+        mode,
+        force_animated_webp,
+        png_mode,
+        png_optimization
+    );
+
+    let path_buf = process_data(
+        data,
+        q,
+        mode,
+        force_animated_webp,
+        png_mode,
+        png_optimization,
+    )?;
+    let path_str = path_buf.to_string_lossy().to_string();
+
+    info!("compress_image_data done: output={}", path_str);
+    Ok(path_str)
+}
+
+#[tauri::command]
+pub async fn save_image_data(data: Vec<u8>) -> Result<String, String> {
+    info!("save_image_data start: data_len={}", data.len());
+
+    // 在系统临时目录创建输出文件
+    let mut tmp = TempFileBuilder::new()
+        .prefix("yana_clipboard_raw_")
+        .suffix("")
+        .tempfile()
+        .map_err(|e| format!("tempfile: {}", e))?;
+
+    // 直接写入原始数据
+    tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
+
+    // keep() 将临时文件持久化并返回 PathBuf
+    let path_buf = tmp
+        .into_temp_path()
+        .keep()
+        .map_err(|e| format!("keep temp: {}", e))?;
+
+    let path_str = path_buf.to_string_lossy().to_string();
+    info!("save_image_data done: output={}", path_str);
+    Ok(path_str)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

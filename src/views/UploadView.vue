@@ -654,6 +654,52 @@ function clearResults() {
   uploadLines.value = [];
   errorMessages.value = [];
 }
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function uploadClipboard() {
+  if (!canInteract() || uploading.value) {
+    if (!uploading.value) ensurePluginReady();
+    return;
+  }
+  // 读取剪贴板
+  let blob: Blob | null = null;
+  try {
+    const items = await navigator.clipboard.read();
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith('image/'));
+      if (type) {
+        blob = await item.getType(type);
+        break;
+      }
+    }
+  } catch (e) {
+    errorMessages.value = [
+      '读取剪贴板失败：' + (e instanceof Error ? e.message : String(e)),
+    ];
+    return;
+  }
+  if (!blob) {
+    errorMessages.value = ['剪贴板中没有图片'];
+    return;
+  }
+  // 转为 Uint8Array
+  const buffer = await blob.arrayBuffer();
+  const data = new Uint8Array(buffer);
+  // 调用后端接口，仅保存原始数据，后续由 processPaths 处理压缩
+  let tempPath: string;
+  try {
+    tempPath = await invoke<string>('save_image_data', {
+      data: Array.from(data),
+    });
+  } catch (e) {
+    errorMessages.value = [
+      '处理图片失败：' + (e instanceof Error ? e.message : String(e)),
+    ];
+    return;
+  }
+  // 继续执行上传流程
+  await processPaths([tempPath]);
+}
 </script>
 
 <template>
@@ -711,8 +757,69 @@ function clearResults() {
         </div>
 
         <div class="actions">
-          <button type="button" :disabled="uploading" @click.stop="selectFiles">
-            {{ uploading ? '上传中…' : '从文件选择' }}
+          <button
+            type="button"
+            class="primary"
+            :disabled="uploading"
+            @click.stop="uploadClipboard"
+            title="从剪贴板上传图片"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style="vertical-align: middle; margin-right: 8px"
+            >
+              <!-- Clipboard icon -->
+              <rect
+                x="7"
+                y="3"
+                width="10"
+                height="4"
+                rx="1"
+                fill="currentColor"
+                opacity="0.12"
+              />
+              <path
+                d="M9 3h6a1 1 0 0 1 1 1v1"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <rect
+                x="6"
+                y="7"
+                width="12"
+                height="13"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.4"
+                fill="none"
+              />
+              <rect
+                x="9"
+                y="1"
+                width="6"
+                height="2"
+                rx="0.5"
+                fill="currentColor"
+                opacity="0.12"
+                transform="translate(0 0)"
+              />
+              <path
+                d="M9 11h6"
+                stroke="currentColor"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span style="vertical-align: middle">{{
+              uploading ? '上传中…' : '从剪贴板上传'
+            }}</span>
           </button>
           <button
             type="button"

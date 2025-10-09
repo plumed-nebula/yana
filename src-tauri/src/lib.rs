@@ -52,6 +52,8 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![
             process::compress_images,
+            process::compress_image_data,
+            process::save_image_data,
             process::save_files,
             settings::load_settings,
             settings::save_settings,
