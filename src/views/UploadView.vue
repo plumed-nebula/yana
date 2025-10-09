@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, reactive } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
-import { info as logInfo, error as logError } from '@tauri-apps/plugin-log';
+import { invoke } from '@tauri-apps/api/core';
+import {
+  info as logInfo,
+  error as logError,
+  warn as logWarn,
+} from '@tauri-apps/plugin-log';
 import { useImageHostStore } from '../stores/imageHosts';
+import { useSettingsStore } from '../stores/settings';
 import type { LoadedPlugin } from '../plugins/registry';
+import type { PluginUploadResult } from '../types/imageHostPlugin';
+import { insertGalleryItem } from '../types/gallery';
 
 type FormatKey = 'link' | 'html' | 'bbcode' | 'markdown';
 
@@ -23,6 +31,29 @@ interface DialogFilter {
   extensions: string[];
 }
 
+type UploadSuccess = {
+  index: number;
+  originalPath: string;
+  uploadFileName: string;
+  result: PluginUploadResult;
+};
+
+type UploadFailure = {
+  index: number;
+  originalPath: string;
+  uploadFileName: string;
+  error: string;
+};
+
+type ProgressStage = 'idle' | 'compress' | 'upload' | 'save';
+
+const progressStageLabels: Record<ProgressStage, string> = {
+  idle: '待命',
+  compress: '压缩中',
+  upload: '上传中',
+  save: '保存中',
+};
+
 const formatLabels: Record<FormatKey, string> = {
   link: '纯链接',
   html: 'HTML',
@@ -37,6 +68,7 @@ const props = defineProps<{
 
 const store = useImageHostStore();
 void store.ensureLoaded();
+const globalSettings = useSettingsStore();
 
 const plugins = store.plugins;
 const loading = store.loading;
@@ -50,6 +82,16 @@ const format = ref<FormatKey>('link');
 const uploadLines = ref<UploadLine[]>([]);
 const errorMessages = ref<string[]>([]);
 const nextId = ref(1);
+
+const progress = reactive({
+  active: false,
+  stage: 'idle' as ProgressStage,
+  total: 0,
+  completed: 0,
+  detail: '',
+});
+
+let progressResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 const pluginList = computed(() => plugins.value as readonly LoadedPlugin[]);
 
@@ -77,6 +119,18 @@ const formattedLines = computed(() =>
     id: line.id,
     text: formatLine(line),
   }))
+);
+
+const progressPercent = computed(() => {
+  if (!progress.total || progress.total <= 0) return 0;
+  const ratio = progress.completed / progress.total;
+  return Math.min(100, Math.max(0, Math.round(ratio * 100)));
+});
+
+const progressVisible = computed(() => progress.active || uploading.value);
+
+const progressStageText = computed(
+  () => progressStageLabels[progress.stage] ?? ''
 );
 
 const availableFilters = computed<DialogFilter[]>(() => {
@@ -192,8 +246,64 @@ function uniquePaths(paths: Array<string | null | undefined>): string[] {
   return result;
 }
 
+function clampConcurrency(value: unknown): number {
+  const fallback = 5;
+  const max = 10;
+  const min = 1;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const rounded = Math.round(parsed);
+  if (rounded < min) return min;
+  if (rounded > max) return max;
+  return rounded;
+}
+
+function supportsWebp(plugin: LoadedPlugin): boolean {
+  const types = plugin.supportedFileTypes;
+  if (!types || !types.length) return true;
+  for (const type of types) {
+    const extensions = (type.extensions ?? []).map((ext) =>
+      ext.replace(/^[.]/, '').toLowerCase()
+    );
+    if (extensions.includes('webp')) {
+      return true;
+    }
+    const mimeTypes = (type.mimeTypes ?? []).map((mime) => mime.toLowerCase());
+    if (mimeTypes.includes('image/webp')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function ensureWebpExtension(name: string): string {
+  const dotIndex = name.lastIndexOf('.');
+  if (dotIndex <= 0) {
+    return `${name || 'image'}.webp`;
+  }
+  return `${name.slice(0, dotIndex)}.webp`;
+}
+
+function resolveFilesize(
+  metadata: Record<string, unknown> | undefined
+): number | undefined {
+  if (!metadata) return undefined;
+  const candidates = [metadata.filesize, metadata.size];
+  for (const value of candidates) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 function canInteract(): boolean {
-  return !!activePlugin.value && !!activeSettings.value && ready.value;
+  return (
+    !!activePlugin.value &&
+    !!activeSettings.value &&
+    ready.value &&
+    globalSettings.ready.value
+  );
 }
 
 async function selectFiles(event?: Event) {
@@ -229,6 +339,10 @@ function ensurePluginReady(): boolean {
     errorMessages.value = ['插件仍在加载中，请稍候。'];
     return false;
   }
+  if (!globalSettings.ready.value) {
+    errorMessages.value = ['全局压缩设置仍在加载，请稍候。'];
+    return false;
+  }
   return true;
 }
 
@@ -239,45 +353,246 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
   const paths = uniquePaths(rawPaths);
   if (!paths.length) return;
 
-  const payload = JSON.parse(JSON.stringify(settings.values ?? {})) as Record<
-    string,
-    unknown
-  >;
+  const payloadTemplate = JSON.stringify(settings.values ?? {});
 
   resetState({ keepResults: true, keepFormat: true });
   uploading.value = true;
   const errors: string[] = [];
 
+  const compressionEnabled = globalSettings.enableUploadCompression.value;
+  const convertToWebp = globalSettings.convertToWebp.value;
+  const targetSupportsWebp = supportsWebp(plugin);
+  let useWebpMode = compressionEnabled && convertToWebp;
+
+  if (useWebpMode && !targetSupportsWebp) {
+    useWebpMode = false;
+    await logWarn(
+      `[upload] 插件 ${plugin.id} 未声明 WebP 支持，上传将回退为原格式压缩。`
+    );
+  }
+
+  if (progressResetTimer) {
+    clearTimeout(progressResetTimer);
+    progressResetTimer = null;
+  }
+
+  const compressionSteps = compressionEnabled ? paths.length : 0;
+  const uploadSteps = paths.length;
+  const initialTotal = compressionEnabled
+    ? compressionSteps + uploadSteps + paths.length
+    : uploadSteps + paths.length;
+  progress.active = true;
+  progress.stage = compressionEnabled ? 'compress' : 'upload';
+  progress.total = initialTotal;
+  progress.completed = 0;
+  progress.detail = compressionEnabled
+    ? `准备压缩（共 ${paths.length} 张）…`
+    : `准备上传（共 ${paths.length} 张）…`;
+
   try {
-    for (const path of paths) {
+    const forceAnimated = useWebpMode && globalSettings.forceAnimatedWebp.value;
+    const pngMode = globalSettings.pngCompressionMode.value;
+    const pngOptimization = globalSettings.pngOptimization.value;
+    const quality = globalSettings.quality.value;
+
+    let processedPaths = paths;
+
+    if (compressionEnabled) {
       try {
-        await logInfo(`[upload] 使用插件 ${plugin.id} 上传文件 ${path}`);
-        const result = await plugin.upload(path, payload, store.runtime);
-        uploadLines.value.push({
-          id: nextId.value++,
-          filePath: path,
-          url: result.url,
-          deleteId: result.deleteId,
+        progress.stage = 'compress';
+        progress.detail = `正在压缩（${paths.length} 张）…`;
+        const response = await invoke<string[]>('compress_images', {
+          paths,
+          quality,
+          mode: useWebpMode ? 'webp' : 'original_format',
+          forceAnimatedWebp: forceAnimated,
+          pngMode,
+          pngOptimization,
         });
-        await logInfo(
-          `[upload] 插件 ${plugin.id} 上传完成，访问链接 ${result.url}`
-        );
+        if (Array.isArray(response) && response.length === paths.length) {
+          processedPaths = response;
+        } else {
+          await logWarn(
+            `[upload] 压缩结果数量与输入不符（${response?.length ?? 0} != ${
+              paths.length
+            }），已回退原文件。`
+          );
+          processedPaths = paths;
+          useWebpMode = false;
+        }
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error ?? '未知错误');
-        const displayName = extractName(path);
-        errors.push(`${displayName}：${message}`);
-        await logError(
-          `[upload] 插件 ${plugin.id} 上传 ${path} 失败: ${message}`
-        );
+        await logError(`[upload] 压缩阶段失败，已回退原文件: ${message}`);
+        errors.push(`压缩失败：${message}`);
+        processedPaths = paths;
+        useWebpMode = false;
+      } finally {
+        progress.completed = compressionSteps;
+        progress.detail = '压缩阶段完成，准备上传…';
       }
     }
+
+    const uploadEntries = paths.map((originalPath, index) => {
+      const uploadPath = processedPaths[index] ?? originalPath;
+      const baseName = extractName(originalPath) || `image-${index + 1}`;
+      const shouldRenameToWebp = useWebpMode && uploadPath !== originalPath;
+      const uploadFileName = shouldRenameToWebp
+        ? ensureWebpExtension(baseName)
+        : baseName;
+      return {
+        index,
+        originalPath,
+        uploadPath,
+        uploadFileName,
+      };
+    });
+
+    const results: Array<UploadSuccess | UploadFailure | undefined> = new Array(
+      uploadEntries.length
+    );
+    const concurrency = clampConcurrency(
+      globalSettings.maxUploadConcurrency.value
+    );
+    let uploadCompleted = 0;
+
+    progress.stage = 'upload';
+    progress.detail = `上传中 (0/${uploadEntries.length})`;
+
+    let nextIndex = 0;
+    const worker = async () => {
+      while (true) {
+        const current = nextIndex++;
+        if (current >= uploadEntries.length) return;
+        const entry = uploadEntries[current]!;
+        const payload = JSON.parse(payloadTemplate) as Record<string, unknown>;
+        try {
+          await logInfo(
+            `[upload] 使用插件 ${plugin.id} 上传文件 ${entry.uploadPath}`
+          );
+          const result = await plugin.upload(
+            entry.uploadPath,
+            entry.uploadFileName,
+            payload,
+            store.runtime
+          );
+          await logInfo(
+            `[upload] 插件 ${plugin.id} 上传完成，访问链接 ${result.url}`
+          );
+          results[current] = {
+            index: entry.index,
+            originalPath: entry.originalPath,
+            uploadFileName: entry.uploadFileName,
+            result,
+          } satisfies UploadSuccess;
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : String(error ?? '未知错误');
+          await logError(
+            `[upload] 插件 ${plugin.id} 上传 ${entry.uploadPath} 失败: ${message}`
+          );
+          results[current] = {
+            index: entry.index,
+            originalPath: entry.originalPath,
+            uploadFileName: entry.uploadFileName,
+            error: message,
+          } satisfies UploadFailure;
+        } finally {
+          uploadCompleted += 1;
+          progress.completed =
+            compressionSteps + Math.min(uploadCompleted, uploadSteps);
+          progress.detail = `上传中 (${uploadCompleted}/${uploadEntries.length})`;
+        }
+      }
+    };
+
+    const workerCount = Math.max(
+      1,
+      Math.min(concurrency, uploadEntries.length)
+    );
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    const successes: UploadSuccess[] = [];
+    for (const outcome of results) {
+      if (!outcome) continue;
+      if ('result' in outcome) {
+        successes.push(outcome);
+      } else {
+        errors.push(`${outcome.uploadFileName}：${outcome.error}`);
+      }
+    }
+
+    successes.sort((a, b) => a.index - b.index);
+    for (const { originalPath, result } of successes) {
+      uploadLines.value.push({
+        id: nextId.value++,
+        filePath: originalPath,
+        url: result.url,
+        deleteId: result.deleteId,
+      });
+    }
+
+    const saveSteps = successes.length;
+    progress.total = compressionSteps + uploadSteps + saveSteps;
+    progress.completed = compressionSteps + uploadSteps;
+
+    if (saveSteps > 0) {
+      progress.stage = 'save';
+      progress.detail = `保存到图库 (0/${saveSteps})`;
+      let saved = 0;
+      for (const success of successes) {
+        try {
+          await insertGalleryItem({
+            file_name: success.uploadFileName,
+            url: success.result.url,
+            host: plugin.id,
+            delete_marker: success.result.deleteId ?? null,
+            filesize: resolveFilesize(success.result.metadata),
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : String(error ?? '未知错误');
+          await logError(
+            `[upload] 保存至图库失败 (${success.uploadFileName}): ${message}`
+          );
+          errors.push(`${success.uploadFileName}：保存到图库失败：${message}`);
+        } finally {
+          saved += 1;
+          progress.completed =
+            compressionSteps + uploadSteps + Math.min(saved, saveSteps);
+          progress.detail = `保存到图库 (${saved}/${saveSteps})`;
+        }
+      }
+    }
+
+    const summary = errors.length
+      ? `已完成，成功 ${successes.length} / 失败 ${errors.length}`
+      : '全部完成';
+    progress.detail = summary;
+    progress.completed = Math.max(progress.completed, progress.total);
+    progress.total = Math.max(progress.total, progress.completed);
+    progress.stage = saveSteps > 0 ? 'save' : progress.stage;
+
+    progressResetTimer = setTimeout(() => {
+      progress.active = false;
+      progress.stage = 'idle';
+      progress.total = 0;
+      progress.completed = 0;
+      progress.detail = '';
+      progressResetTimer = null;
+    }, 1600);
   } finally {
     uploading.value = false;
   }
 
   if (errors.length) {
     errorMessages.value = errors;
+  } else {
+    errorMessages.value = [];
   }
 }
 
@@ -407,6 +722,23 @@ function clearResults() {
           >
             清空结果
           </button>
+        </div>
+
+        <div v-if="progressVisible" class="progress-card">
+          <div class="progress-header">
+            <span class="stage">{{ progressStageText }}</span>
+            <span class="ratio"
+              >{{ Math.min(progress.completed, progress.total) }} /
+              {{ progress.total }}</span
+            >
+          </div>
+          <div class="progress-bar">
+            <div
+              class="progress-bar__fill"
+              :style="{ width: progressPercent + '%' }"
+            ></div>
+          </div>
+          <div class="progress-detail">{{ progress.detail }}</div>
         </div>
 
         <div v-if="errorMessages.length" class="status error">
@@ -600,6 +932,57 @@ function clearResults() {
 .actions button.muted:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.progress-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(15, 27, 53, 0.06);
+  border: 1px solid rgba(15, 27, 53, 0.1);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: rgba(12, 28, 56, 0.7);
+}
+
+.progress-header .stage {
+  font-weight: 600;
+  color: #13244c;
+}
+
+.progress-header .ratio {
+  font-family: 'Fira Code', 'Consolas', monospace;
+}
+
+.progress-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(15, 27, 53, 0.12);
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #5a6bff, #9b46ff);
+  transition: width 0.2s ease;
+}
+
+.progress-detail {
+  font-size: 12px;
+  color: rgba(12, 28, 56, 0.7);
 }
 
 .output {

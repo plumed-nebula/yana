@@ -11,6 +11,14 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "dialog:allow-message",
-    "fs:allow-copy-file"
+    "fs:allow-copy-file",
+    "http:default",
+    {
+      "identifier": "http:allow-fetch",
+      "allow": [
+        "https://*",
+        "http://*"
+      ]
+    }
   ]
 }

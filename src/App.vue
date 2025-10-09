@@ -4,15 +4,17 @@ import Sidebar from './components/Sidebar.vue';
 import SettingsView from './views/SettingsView.vue';
 import CompressView from './views/CompressView.vue';
 import UploadView from './views/UploadView.vue';
+import GalleryView from './views/GalleryView.vue';
 import ImageHostSettingsView from './views/ImageHostSettingsView.vue';
 import { useImageHostStore } from './stores/imageHosts';
 import type { LoadedPlugin } from './plugins/registry';
 
-type ViewKey = 'compress' | 'upload' | 'hosts' | 'settings';
+type ViewKey = 'compress' | 'upload' | 'gallery' | 'hosts' | 'settings';
 
 const VIEWS: Record<ViewKey, any> = {
   compress: CompressView,
   upload: UploadView,
+  gallery: GalleryView,
   settings: SettingsView,
   hosts: ImageHostSettingsView,
 };

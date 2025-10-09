@@ -11,6 +11,8 @@ type PersistedSettings = {
   forceAnimatedWebp: boolean;
   pngCompressionMode: PngCompressionMode;
   pngOptimization: PngOptimizationLevel;
+  enableUploadCompression: boolean;
+  maxUploadConcurrency: number;
 };
 
 type SettingsState = PersistedSettings;
@@ -21,6 +23,8 @@ const DEFAULTS: PersistedSettings = {
   forceAnimatedWebp: false,
   pngCompressionMode: 'lossless',
   pngOptimization: 'default',
+  enableUploadCompression: false,
+  maxUploadConcurrency: 5,
 };
 
 let singleton: ReturnType<typeof createStore> | null = null;
@@ -61,6 +65,15 @@ function sanitizePngOptimization(value: unknown): PngOptimizationLevel {
   return 'default';
 }
 
+function sanitizeConcurrency(input: unknown): number {
+  let n = Number(input);
+  if (!Number.isFinite(n)) n = DEFAULTS.maxUploadConcurrency;
+  n = Math.round(n);
+  if (n < 1) n = 1;
+  if (n > 10) n = 10;
+  return n;
+}
+
 function normalizePayload(
   payload: Partial<PersistedSettings> | null | undefined
 ): PersistedSettings {
@@ -77,6 +90,12 @@ function normalizePayload(
     ),
     pngOptimization: sanitizePngOptimization(
       payload?.pngOptimization ?? DEFAULTS.pngOptimization
+    ),
+    enableUploadCompression: Boolean(
+      payload?.enableUploadCompression ?? DEFAULTS.enableUploadCompression
+    ),
+    maxUploadConcurrency: sanitizeConcurrency(
+      payload?.maxUploadConcurrency ?? DEFAULTS.maxUploadConcurrency
     ),
   };
 }
@@ -107,6 +126,8 @@ function createStore() {
       state.forceAnimatedWebp = normalized.forceAnimatedWebp;
       state.pngCompressionMode = normalized.pngCompressionMode;
       state.pngOptimization = normalized.pngOptimization;
+      state.enableUploadCompression = normalized.enableUploadCompression;
+      state.maxUploadConcurrency = normalized.maxUploadConcurrency;
       await info(`[settings] state after load: ${safeJson({ ...state })}`);
     } catch (err) {
       await logError(`[settings] load failed: ${describeError(err)}`);
@@ -134,6 +155,8 @@ function createStore() {
       forceAnimatedWebp: state.forceAnimatedWebp,
       pngCompressionMode: sanitizePngMode(state.pngCompressionMode),
       pngOptimization: sanitizePngOptimization(state.pngOptimization),
+      enableUploadCompression: Boolean(state.enableUploadCompression),
+      maxUploadConcurrency: sanitizeConcurrency(state.maxUploadConcurrency),
     };
     try {
       await invoke('save_settings', { settings: payload });
@@ -174,6 +197,13 @@ function createStore() {
         state.quality = sanitizedQuality;
       }
 
+      const sanitizedConcurrency = sanitizeConcurrency(
+        newState.maxUploadConcurrency
+      );
+      if (sanitizedConcurrency !== newState.maxUploadConcurrency) {
+        state.maxUploadConcurrency = sanitizedConcurrency;
+      }
+
       // 关闭 WebP 时自动取消动图强制转换
       if (!newState.convertToWebp && oldState.convertToWebp) {
         if (state.forceAnimatedWebp) {
@@ -197,6 +227,8 @@ function createStore() {
     forceAnimatedWebp: refs.forceAnimatedWebp,
     pngCompressionMode: refs.pngCompressionMode,
     pngOptimization: refs.pngOptimization,
+    enableUploadCompression: refs.enableUploadCompression,
+    maxUploadConcurrency: refs.maxUploadConcurrency,
     ready: readonly(ready),
     loading: readonly(loading),
     error: readonly(lastError),

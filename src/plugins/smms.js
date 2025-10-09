@@ -69,11 +69,12 @@ function resolveToken(params, context) {
 /**
  * 上传函数实现。
  * @param {string} filePath 选中的本地文件绝对路径
+ * @param {string} originalFileName 上传前的原始文件名
  * @param {Record<string, unknown>} params 用户填写的参数
  * @param {import('../types/imageHostPlugin').PluginRuntimeContext} context 运行时能力封装
  * @returns {Promise<import('../types/imageHostPlugin').PluginUploadResult>}
  */
-export async function upload(filePath, params, context) {
+export async function upload(filePath, originalFileName, params, context) {
   const token = resolveToken(params, context);
 
   context.logger.info('开始向 SM.MS 上传图片');
@@ -87,6 +88,7 @@ export async function upload(filePath, params, context) {
         Authorization: token,
       },
       fieldName: 'smfile',
+      fileName: originalFileName,
       timeoutMs: 60_000,
     },
   });

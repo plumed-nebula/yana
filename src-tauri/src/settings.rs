@@ -20,6 +20,10 @@ pub struct SettingsPayload {
     pub png_compression_mode: PngCompressionMode,
     #[serde(default)]
     pub png_optimization: PngOptimizationLevel,
+    #[serde(default)]
+    pub enable_upload_compression: bool,
+    #[serde(default = "default_max_concurrent_uploads")]
+    pub max_concurrent_uploads: u8,
 }
 
 impl Default for SettingsPayload {
@@ -30,6 +34,8 @@ impl Default for SettingsPayload {
             force_animated_webp: false,
             png_compression_mode: PngCompressionMode::default(),
             png_optimization: PngOptimizationLevel::default(),
+            enable_upload_compression: false,
+            max_concurrent_uploads: default_max_concurrent_uploads(),
         }
     }
 }
@@ -42,8 +48,16 @@ impl SettingsPayload {
             force_animated_webp: self.force_animated_webp,
             png_compression_mode: self.png_compression_mode,
             png_optimization: self.png_optimization,
+            enable_upload_compression: self.enable_upload_compression,
+            max_concurrent_uploads: self
+                .max_concurrent_uploads
+                .clamp(1, default_max_concurrent_uploads()),
         }
     }
+}
+
+const fn default_max_concurrent_uploads() -> u8 {
+    5
 }
 
 fn ensure_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -148,6 +162,8 @@ mod tests {
             force_animated_webp: false,
             png_compression_mode: PngCompressionMode::Lossless,
             png_optimization: PngOptimizationLevel::Default,
+            enable_upload_compression: true,
+            max_concurrent_uploads: 3,
         };
 
         let json = serde_json::to_string_pretty(&settings).unwrap();
@@ -159,6 +175,8 @@ mod tests {
         assert!(json.contains("\"forceAnimatedWebp\""));
         assert!(json.contains("\"pngCompressionMode\""));
         assert!(json.contains("\"pngOptimization\""));
+        assert!(json.contains("\"enableUploadCompression\""));
+        assert!(json.contains("\"maxConcurrentUploads\""));
 
         // 反序列化验证
         let deserialized: SettingsPayload = serde_json::from_str(&json).unwrap();
@@ -170,5 +188,7 @@ mod tests {
             PngCompressionMode::Lossless
         );
         assert_eq!(deserialized.png_optimization, PngOptimizationLevel::Default);
+        assert_eq!(deserialized.enable_upload_compression, true);
+        assert_eq!(deserialized.max_concurrent_uploads, 3);
     }
 }

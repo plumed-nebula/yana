@@ -117,6 +117,7 @@ export interface PluginRuntimeContext {
 
 export type PluginUploadFunction = (
   filePath: string,
+  originalFileName: string,
   params: Record<string, unknown>,
   context: PluginRuntimeContext
 ) => Promise<PluginUploadResult>;

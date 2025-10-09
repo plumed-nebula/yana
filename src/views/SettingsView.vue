@@ -10,15 +10,19 @@ const convertToWebpEnabled = computed(
   () => settings.convertToWebp.value === true
 );
 
-const pngControlsDisabled = computed(() => settings.convertToWebp.value);
-
 const pngModeDescription = computed(() => {
+  if (settings.convertToWebp.value) {
+    return '当目标图床不支持 WebP 时，会按所选策略重新压缩 PNG，以便自动回退。';
+  }
   return settings.pngCompressionMode.value === 'lossy'
     ? '进行颜色量化以尽量保持观感的前提下显著减小 PNG 体积。适合截图、插画等对绝对无损要求不高的场景。'
     : '保持像素原样，仅对 DEFLATE 压缩器进行调优，画质完全无损。适合对素材要求无损还原的场景。';
 });
 
 const pngOptimizationDescription = computed(() => {
+  if (settings.convertToWebp.value) {
+    return '回退到 PNG 时使用的优化级别，上传前压缩会按该选项调整编码速度与压缩率。';
+  }
   switch (settings.pngOptimization.value) {
     case 'best':
       return '优先压缩率，编码时间较长。适合离线批量压缩。';
@@ -58,16 +62,57 @@ function restoreDefaults() {
   settings.forceAnimatedWebp.value = false;
   settings.pngCompressionMode.value = 'lossless';
   settings.pngOptimization.value = 'default';
+  settings.enableUploadCompression.value = false;
+  settings.maxUploadConcurrency.value = 5;
 }
 </script>
 
 <template>
   <div class="wrapper">
     <div class="panel">
-      <header>
-        <h1>压缩参数</h1>
+      <section class="group-title">
+        <h2>上传选项</h2>
+        <p>配置上传时的预处理流程与并发策略，确保与目标图床匹配。</p>
+      </section>
+
+      <section class="field">
+        <div class="toggle">
+          <label>
+            <input
+              type="checkbox"
+              v-model="settings.enableUploadCompression.value"
+            />
+            <span class="title">上传前先执行压缩流程</span>
+          </label>
+          <p class="help">
+            根据当前压缩参数预处理图片，再交由图床上传；若关闭则直接上传原始文件。
+          </p>
+        </div>
+      </section>
+
+      <section class="field">
+        <div class="field-head">
+          <label for="upload-concurrency">最大并发上传数</label>
+          <span class="value">{{ settings.maxUploadConcurrency.value }}</span>
+        </div>
+        <div class="field-body">
+          <input
+            id="upload-concurrency"
+            type="number"
+            min="1"
+            max="10"
+            v-model.number="settings.maxUploadConcurrency.value"
+          />
+        </div>
+        <p class="help">
+          控制同时进行的上传任务数量。数值越大速度越快，但可能占用更多带宽和图床限速。
+        </p>
+      </section>
+
+      <section class="group-title">
+        <h2>压缩参数</h2>
         <p>调整图片压缩的基础策略，所有更改会自动持久化。</p>
-      </header>
+      </section>
 
       <section class="field">
         <div class="field-head">
@@ -122,7 +167,7 @@ function restoreDefaults() {
       <section class="field">
         <div class="field-head">
           <label>PNG 压缩策略</label>
-          <span class="value" v-if="!pngControlsDisabled">
+          <span class="value">
             {{
               settings.pngCompressionMode.value === 'lossy'
                 ? '有损压缩'
@@ -130,12 +175,11 @@ function restoreDefaults() {
             }}
           </span>
         </div>
-        <div :class="['option-group', { disabled: pngControlsDisabled }]">
+        <div class="option-group">
           <label>
             <input
               type="radio"
               value="lossless"
-              :disabled="pngControlsDisabled"
               v-model="settings.pngCompressionMode.value"
             />
             <span class="title">无损优化</span>
@@ -145,26 +189,19 @@ function restoreDefaults() {
             <input
               type="radio"
               value="lossy"
-              :disabled="pngControlsDisabled"
               v-model="settings.pngCompressionMode.value"
             />
             <span class="title">有损压缩</span>
             <span class="desc">通过颜色量化进一步减小体积。</span>
           </label>
         </div>
-        <p class="help">
-          {{
-            pngControlsDisabled
-              ? '当前输出为 WebP，此设置暂不生效。'
-              : pngModeDescription
-          }}
-        </p>
+        <p class="help">{{ pngModeDescription }}</p>
       </section>
 
       <section class="field">
         <div class="field-head">
           <label for="png-opt">PNG 优化级别</label>
-          <span class="value" v-if="!pngControlsDisabled">
+          <span class="value">
             {{
               settings.pngOptimization.value === 'best'
                 ? '最佳压缩'
@@ -175,23 +212,13 @@ function restoreDefaults() {
           </span>
         </div>
         <div class="field-body">
-          <select
-            id="png-opt"
-            :disabled="pngControlsDisabled"
-            v-model="settings.pngOptimization.value"
-          >
+          <select id="png-opt" v-model="settings.pngOptimization.value">
             <option value="best">最佳压缩（最慢）</option>
             <option value="default">标准（推荐）</option>
             <option value="fast">快速（体积略大）</option>
           </select>
         </div>
-        <p class="help">
-          {{
-            pngControlsDisabled
-              ? '当前输出为 WebP，此设置暂不生效。'
-              : pngOptimizationDescription
-          }}
-        </p>
+        <p class="help">{{ pngOptimizationDescription }}</p>
       </section>
 
       <footer>
@@ -221,13 +248,25 @@ function restoreDefaults() {
   border: 1px solid rgba(255, 255, 255, 0.55);
 }
 
-header h1 {
-  margin: 0 0 6px;
-  font-size: 26px;
+.group-title {
+  margin-top: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-title:first-of-type {
+  margin-top: 0;
+}
+
+.group-title h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
   color: #0c1c38;
 }
 
-header p {
+.group-title p {
   margin: 0;
   color: rgba(12, 28, 56, 0.65);
 }

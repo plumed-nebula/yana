@@ -4,6 +4,7 @@ import {
   Sparkles,
   SquareStack,
   UploadCloud,
+  GalleryHorizontal,
   Image as ImageIcon,
   Cog,
   ChevronsLeft,
@@ -14,7 +15,7 @@ import {
 } from 'lucide-vue-next';
 import type { LoadedPlugin } from '../plugins/registry';
 
-type ViewKey = 'compress' | 'upload' | 'settings' | 'hosts';
+type ViewKey = 'compress' | 'upload' | 'gallery' | 'settings' | 'hosts';
 
 const props = defineProps<{
   current: ViewKey;
@@ -32,14 +33,19 @@ const collapsed = ref(false);
 
 const items: Array<{ key: ViewKey; label: string; icon: Component }> = [
   {
+    key: 'upload',
+    label: '上传',
+    icon: UploadCloud,
+  },
+  {
     key: 'compress',
     label: '压缩',
     icon: SquareStack,
   },
   {
-    key: 'upload',
-    label: '上传',
-    icon: UploadCloud,
+    key: 'gallery',
+    label: '图库',
+    icon: GalleryHorizontal,
   },
   {
     key: 'hosts',
