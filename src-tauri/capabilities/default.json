@@ -24,6 +24,7 @@
         "https://*",
         "http://*"
       ]
-    }
+    },
+    "fs:read-files"
   ]
 }

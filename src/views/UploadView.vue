@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, reactive } from 'vue';
+import { computed, ref, watch, reactive, onMounted, onUnmounted } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -7,6 +7,7 @@ import {
   error as logError,
   warn as logWarn,
 } from '@tauri-apps/plugin-log';
+import { listen } from '@tauri-apps/api/event';
 import { useImageHostStore } from '../stores/imageHosts';
 import { useSettingsStore } from '../stores/settings';
 import type { LoadedPlugin } from '../plugins/registry';
@@ -77,11 +78,11 @@ const errorRef = store.error;
 
 const localPluginId = ref<string | null>(props.pluginId ?? null);
 const uploading = ref(false);
-const dragActive = ref(false);
 const format = ref<FormatKey>('link');
 const uploadLines = ref<UploadLine[]>([]);
 const errorMessages = ref<string[]>([]);
 const nextId = ref(1);
+const dragActive = ref(false);
 
 const progress = reactive({
   active: false,
@@ -191,6 +192,53 @@ watch(
   },
   { immediate: true }
 );
+
+let unlistenDrop: (() => void) | null = null;
+let unlistenEnter: (() => void) | null = null;
+let unlistenLeave: (() => void) | null = null;
+
+onMounted(async () => {
+  unlistenDrop = await listen<{
+    paths: string[];
+    position: { x: number; y: number };
+  }>('tauri://drag-drop', async (event) => {
+    await logInfo('[upload] 收到文件拖放事件');
+    dragActive.value = false;
+    if (uploading.value) {
+      await logWarn('[upload] 正在上传中，已忽略此次文件拖放。');
+      return;
+    }
+    if (!ensurePluginReady()) {
+      return;
+    }
+    await processPaths(event.payload.paths);
+  });
+
+  unlistenEnter = await listen('tauri://drag-enter', async () => {
+    await logInfo('[upload] 文件进入拖放区域');
+    dragActive.value = true;
+  });
+
+  unlistenLeave = await listen('tauri://drag-leave', async () => {
+    await logInfo('[upload] 文件离开拖放区域');
+    dragActive.value = false;
+  });
+});
+
+onUnmounted(() => {
+  if (unlistenDrop) {
+    unlistenDrop();
+    unlistenDrop = null;
+  }
+  if (unlistenEnter) {
+    unlistenEnter();
+    unlistenEnter = null;
+  }
+  if (unlistenLeave) {
+    unlistenLeave();
+    unlistenLeave = null;
+  }
+});
 
 function resetState(options?: { keepResults?: boolean; keepFormat?: boolean }) {
   errorMessages.value = [];
@@ -596,44 +644,6 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
   }
 }
 
-function onDragEnter(event: DragEvent) {
-  if (!canInteract() || uploading.value) return;
-  event.preventDefault();
-  dragActive.value = true;
-}
-
-function onDragOver(event: DragEvent) {
-  if (!canInteract() || uploading.value) {
-    event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
-    return;
-  }
-  event.preventDefault();
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-}
-
-function onDragLeave(event: DragEvent) {
-  event.preventDefault();
-  if (event.currentTarget === event.target) {
-    dragActive.value = false;
-  }
-}
-
-async function onDrop(event: DragEvent) {
-  event.preventDefault();
-  dragActive.value = false;
-  if (!canInteract() || uploading.value) {
-    if (!uploading.value) ensurePluginReady();
-    return;
-  }
-
-  const files = Array.from(event.dataTransfer?.files ?? []);
-  const paths = files.map(
-    (file) => (file as File & { path?: string }).path ?? ''
-  );
-  await processPaths(paths);
-}
-
 async function copyLine(content: string) {
   try {
     await navigator.clipboard.writeText(content);
@@ -739,15 +749,11 @@ async function uploadClipboard() {
             active: dragActive,
             disabled: uploading || !activePlugin,
           }"
-          @dragenter.prevent="onDragEnter"
-          @dragover.prevent="onDragOver"
-          @dragleave.prevent="onDragLeave"
-          @drop.prevent="onDrop"
           @click="selectFiles"
         >
           <div class="drop-content">
             <span class="drop-title">
-              {{ uploading ? '正在上传…' : '拖拽图片到此，或点击选择文件' }}
+              {{ uploading ? '正在上传…' : '拖拽文件到窗口任意位置' }}
             </span>
             <span class="drop-sub" v-if="activePlugin">
               当前：{{ activePlugin.name }}
