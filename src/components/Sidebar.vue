@@ -222,7 +222,7 @@ const sidebarWidth = computed(() => (collapsed.value ? '64px' : '240px'));
 .nav-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   border: none;
   padding: 10px 12px;
   gap: 12px;
@@ -235,6 +235,11 @@ const sidebarWidth = computed(() => (collapsed.value ? '64px' : '240px'));
 .nav-item .icon {
   flex-shrink: 0;
   color: var(--icon-muted);
+}
+
+.nav-item .label {
+  flex: 1;
+  text-align: left;
 }
 
 .chevron {
