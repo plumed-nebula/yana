@@ -87,10 +87,10 @@ function handleDelete() {
 <style scoped>
 .card {
   margin: 0;
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 16px;
+  background: var(--surface-acrylic);
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 12px 30px rgba(15, 27, 53, 0.12);
+  box-shadow: var(--shadow-soft);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   cursor: pointer;
@@ -100,12 +100,12 @@ function handleDelete() {
 
 .card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 18px 38px rgba(15, 27, 53, 0.16);
+  box-shadow: var(--shadow-strong);
 }
 
 .card:focus-visible {
   transform: translateY(-4px);
-  box-shadow: 0 18px 38px rgba(26, 70, 160, 0.3);
+  box-shadow: var(--shadow-strong);
 }
 
 .image-wrapper {
@@ -121,7 +121,7 @@ function handleDelete() {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  background: #f6f8fb;
+  background: rgba(0, 0, 0, 0.1);
   pointer-events: none;
 }
 
@@ -135,7 +135,8 @@ function handleDelete() {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.card:hover .delete-btn {
+.card:hover .delete-btn,
+.card:focus-within .delete-btn {
   opacity: 1;
   transform: translateY(0);
 }
@@ -146,11 +147,7 @@ function handleDelete() {
   right: 0;
   bottom: 0;
   padding: 14px 16px 16px;
-  background: linear-gradient(
-    180deg,
-    rgba(12, 18, 36, 0),
-    rgba(12, 18, 36, 0.88)
-  );
+  background: linear-gradient(180deg, rgba(6, 9, 18, 0), rgba(6, 9, 18, 0.78));
   opacity: 0;
   transform: translateY(10px);
   transition: opacity 0.2s ease, transform 0.2s ease;
@@ -209,7 +206,7 @@ function handleDelete() {
   justify-content: center;
   border-radius: 50%;
   border: none;
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.22);
   color: #fff;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.2s ease, color 0.2s ease;
@@ -225,11 +222,11 @@ function handleDelete() {
 }
 
 .icon-btn.danger {
-  background: rgba(244, 63, 94, 0.24);
-  color: #fff5f7;
+  background: rgba(244, 63, 94, 0.34);
+  color: #ffe8ec;
 }
 
 .icon-btn.danger:hover {
-  background: rgba(244, 63, 94, 0.35);
+  background: rgba(244, 63, 94, 0.42);
 }
 </style>

@@ -241,51 +241,66 @@ function handleManualSave() {
   width: 100%;
   display: flex;
   flex-direction: column;
+  color: var(--text-primary);
 }
 
 .panel {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--surface-panel);
   border-radius: 24px;
-  border: 1px solid rgba(12, 28, 56, 0.12);
-  box-shadow: 0 20px 46px rgba(15, 27, 53, 0.16);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-strong);
   padding: 32px;
   display: flex;
   flex-direction: column;
   gap: 24px;
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(20px) saturate(1.06);
   width: 100%;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.panel:hover {
+  border-color: var(--surface-border);
+  border-color: color-mix(in srgb, var(--surface-border) 60%, var(--accent));
+  box-shadow: 0 28px 60px rgba(6, 12, 24, 0.34);
 }
 
 .panel-head h1 {
   margin: 0 0 6px;
   font-size: 26px;
-  color: #0c1c38;
+  color: var(--text-primary);
 }
 
 .panel-head p {
   margin: 0;
-  color: rgba(14, 29, 60, 0.64);
+  color: var(--text-secondary);
 }
 
 .status-block {
   padding: 18px 20px;
   border-radius: 14px;
   font-size: 15px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-secondary);
 }
 
 .status-block.info {
-  background: rgba(20, 60, 160, 0.08);
-  color: #143ca0;
+  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-soft) 80%, transparent);
+  color: var(--accent);
+  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .status-block.error {
-  background: rgba(178, 30, 53, 0.1);
-  color: #9c1f33;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 28%, transparent);
 }
 
 .status-block.muted {
-  background: rgba(16, 31, 60, 0.06);
-  color: rgba(16, 31, 60, 0.72);
+  color: var(--text-secondary);
 }
 
 .plugin-summary {
@@ -294,18 +309,20 @@ function handleManualSave() {
   gap: 14px;
   padding: 20px;
   border-radius: 18px;
-  background: rgba(16, 31, 60, 0.05);
+  background: var(--surface-acrylic);
+  border: 1px solid var(--surface-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .plugin-summary h2 {
   margin: 0 0 4px;
   font-size: 22px;
-  color: #0c1c38;
+  color: var(--text-primary);
 }
 
 .plugin-summary p {
   margin: 0;
-  color: rgba(14, 29, 60, 0.66);
+  color: var(--text-secondary);
 }
 
 .summary-meta {
@@ -316,7 +333,7 @@ function handleManualSave() {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: rgba(14, 29, 60, 0.64);
+  color: var(--text-secondary);
 }
 
 .fields {
@@ -331,7 +348,7 @@ function handleManualSave() {
 .fields legend {
   font-weight: 600;
   margin-bottom: 12px;
-  color: rgba(14, 29, 60, 0.76);
+  color: var(--text-primary);
 }
 
 .field {
@@ -348,13 +365,13 @@ function handleManualSave() {
 
 .field-head .title {
   font-weight: 600;
-  color: #10203f;
+  color: var(--text-primary);
 }
 
 .field-head .required {
   font-size: 12px;
-  color: #b21e35;
-  background: rgba(178, 30, 53, 0.12);
+  color: var(--danger);
+  background: var(--danger-soft);
   padding: 2px 8px;
   border-radius: 999px;
 }
@@ -365,18 +382,21 @@ function handleManualSave() {
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(16, 31, 60, 0.18);
-  background: rgba(255, 255, 255, 0.92);
-  color: #10203f;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
   font-size: 14px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .control input:focus,
 .control select:focus,
 .control textarea:focus {
-  border-color: rgba(17, 33, 63, 0.45);
-  box-shadow: 0 0 0 3px rgba(17, 33, 63, 0.12);
+  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 0 3px rgba(122, 163, 255, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
   outline: none;
 }
 
@@ -388,8 +408,9 @@ function handleManualSave() {
   user-select: none;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(16, 31, 60, 0.18);
-  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
 }
 
 .boolean-toggle input {
@@ -399,12 +420,12 @@ function handleManualSave() {
 
 .boolean-toggle span {
   font-weight: 600;
-  color: #10203f;
+  color: var(--text-primary);
 }
 
 .help {
   margin: 0;
-  color: rgba(16, 31, 60, 0.58);
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
@@ -418,25 +439,36 @@ function handleManualSave() {
 
 .status-text {
   font-size: 14px;
-  color: rgba(14, 29, 60, 0.7);
+  color: var(--text-secondary);
 }
 
 .status-text.error {
-  color: #b21e35;
+  color: var(--danger);
 }
 
 .panel-footer button {
   border: none;
   padding: 10px 18px;
   border-radius: 12px;
-  background: rgba(12, 28, 56, 0.16);
-  color: #11213f;
+  background: linear-gradient(135deg, var(--accent), rgba(183, 148, 255, 0.92));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 65%, #b794ff 35%)
+  );
+  color: #fff;
   font-weight: 600;
-  transition: background 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.18s ease;
+  box-shadow: 0 12px 30px rgba(122, 163, 255, 0.28);
+  box-shadow: 0 12px 30px
+    color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.38));
 }
 
 .panel-footer button:hover {
-  background: rgba(17, 33, 63, 0.26);
+  transform: translateY(-2px);
+  box-shadow: 0 18px 44px rgba(122, 163, 255, 0.32);
+  box-shadow: 0 18px 44px
+    color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.4));
 }
 
 @media (max-width: 640px) {

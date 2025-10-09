@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-// import { info as logInfo } from '@tauri-apps/plugin-log';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useThemeStore } from '../stores/theme';
 
 const appWindow = getCurrentWindow();
+const themeStore = useThemeStore();
+const isDarkTheme = themeStore.isDark;
 
 const isMaximized = ref(false);
 
@@ -30,6 +32,10 @@ async function handleToggleMaximize() {
 async function handleClose() {
   // await logInfo('[titlebar] close clicked');
   await appWindow.close();
+}
+
+function handleToggleTheme() {
+  themeStore.toggleTheme();
 }
 
 let unlistenResize: UnlistenFn | null = null;
@@ -61,6 +67,45 @@ onBeforeUnmount(() => {
     </div>
     <div class="drag-spacer" data-tauri-drag-region />
     <div class="window-actions" data-tauri-drag-region="false">
+      <button
+        type="button"
+        class="action theme-toggle"
+        :aria-label="isDarkTheme ? '切换为浅色模式' : '切换为深色模式'"
+        @click="handleToggleTheme"
+      >
+        <svg
+          v-if="isDarkTheme"
+          viewBox="0 0 24 24"
+          focusable="false"
+          aria-hidden="true"
+        >
+          <path
+            d="M12 4.5a7.5 7.5 0 1 0 7.5 7.5 5.5 5.5 0 0 1-7.5-7.5Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <svg v-else viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+          <circle
+            cx="12"
+            cy="12"
+            r="5.5"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+          />
+          <path
+            d="M12 3v2.5m0 13V21m9-9h-2.5M5.5 12H3m16.45 6.45-1.77-1.77M7.32 7.32 5.55 5.55m0 12.9 1.77-1.77m10.36-10.36 1.77-1.77"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
       <button
         type="button"
         class="action"
@@ -131,13 +176,14 @@ onBeforeUnmount(() => {
   justify-content: flex-start;
   padding: 0 12px;
   gap: 12px;
-  background: rgba(248, 250, 255, 0.86);
-  color: #1a2030;
+  background: var(--surface-acrylic-strong);
+  color: var(--text-primary);
   font-family: 'Segoe UI', 'Inter', 'PingFang SC', sans-serif;
   user-select: none;
   position: relative;
-  border-bottom: 1px solid rgba(22, 32, 56, 0.08);
-  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--surface-border-strong);
+  backdrop-filter: blur(24px) saturate(1.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .title-meta {
@@ -166,7 +212,7 @@ onBeforeUnmount(() => {
 .name {
   font-size: 13px;
   font-weight: 600;
-  color: #131928;
+  color: var(--text-primary);
 }
 
 .window-actions {
@@ -180,20 +226,20 @@ onBeforeUnmount(() => {
   width: 42px;
   height: 36px;
   border: none;
-  border-radius: 4px;
+  border-radius: 10px;
   background: transparent;
   color: inherit;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.2s ease;
   cursor: pointer;
   padding: 0;
 }
 
 .action svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.4;
@@ -203,20 +249,29 @@ onBeforeUnmount(() => {
 }
 
 .action:hover {
-  background: rgba(22, 32, 56, 0.08);
+  background: var(--action-hover);
 }
 
 .action:active {
-  background: rgba(22, 32, 56, 0.16);
+  background: var(--action-active);
+  transform: translateY(1px);
+}
+
+.action.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.action.danger {
+  color: var(--danger);
 }
 
 .action.danger:hover {
-  background: rgba(230, 70, 70, 0.14);
-  color: #d92c2c;
+  background: var(--danger-soft);
 }
 
 .action.danger:active {
-  background: rgba(230, 70, 70, 0.22);
+  background: rgba(255, 121, 121, 0.32);
 }
 
 :global([data-tauri-drag-region]) {

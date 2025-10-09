@@ -117,6 +117,7 @@ function restoreDefaults() {
       <section class="field">
         <div class="field-head">
           <label for="quality">压缩比率（0-100）</label>
+          <span class="value">{{ settings.quality.value }}</span>
         </div>
         <div class="field-body">
           <input
@@ -239,16 +240,17 @@ function restoreDefaults() {
   width: 100%;
   display: flex;
   flex-direction: column;
+  gap: 24px;
 }
 
 .panel {
-  background: rgba(255, 255, 255, 0.88);
-  border-radius: 22px;
-  box-shadow: 0 18px 42px rgba(15, 27, 53, 0.18);
-  padding: 32px;
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  width: 100%;
+  background: var(--surface-panel);
+  border-radius: 26px;
+  box-shadow: var(--shadow-strong);
+  padding: 36px;
+  backdrop-filter: blur(26px) saturate(1.18);
+  border: 1px solid var(--surface-border);
+  color: var(--text-primary);
 }
 
 .group-title {
@@ -256,6 +258,7 @@ function restoreDefaults() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  color: var(--text-primary);
 }
 
 .group-title:first-of-type {
@@ -266,12 +269,11 @@ function restoreDefaults() {
   margin: 0;
   font-size: 24px;
   font-weight: 700;
-  color: #0c1c38;
 }
 
 .group-title p {
   margin: 0;
-  color: rgba(12, 28, 56, 0.65);
+  color: var(--text-secondary);
 }
 
 .field {
@@ -290,13 +292,13 @@ function restoreDefaults() {
 
 .field-head label {
   font-weight: 600;
-  color: #101f3c;
+  color: var(--text-primary);
 }
 
 .field-head .value {
   font-family: 'Fira Code', 'Consolas', monospace;
   font-size: 15px;
-  color: rgba(16, 31, 60, 0.75);
+  color: var(--text-secondary);
 }
 
 .field-body {
@@ -310,11 +312,12 @@ function restoreDefaults() {
 }
 
 .field-body input[type='number'] {
-  width: 84px;
+  width: 96px;
   padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(16, 31, 60, 0.18);
-  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
 }
 
 .field-body select {
@@ -322,19 +325,20 @@ function restoreDefaults() {
   min-width: 220px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid rgba(16, 31, 60, 0.18);
-  background: rgba(255, 255, 255, 0.92);
-  color: #10203f;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
 }
 
 .toggle {
-  background: rgba(16, 31, 60, 0.05);
-  border-radius: 16px;
-  padding: 18px 20px;
+  background: var(--surface-acrylic);
+  border-radius: 18px;
+  padding: 20px 22px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   transition: opacity 0.2s ease;
+  border: 1px solid var(--surface-border);
 }
 
 .toggle label {
@@ -342,7 +346,7 @@ function restoreDefaults() {
   align-items: center;
   gap: 12px;
   font-weight: 600;
-  color: #102040;
+  color: var(--text-primary);
 }
 
 .toggle .title {
@@ -355,16 +359,17 @@ function restoreDefaults() {
 
 .help {
   margin: 0;
-  color: rgba(16, 31, 60, 0.6);
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .option-group {
   display: grid;
   gap: 12px;
-  background: rgba(16, 31, 60, 0.05);
-  border-radius: 16px;
+  background: var(--surface-acrylic);
+  border-radius: 18px;
   padding: 16px 18px;
+  border: 1px solid var(--surface-border);
 }
 
 .option-group.disabled {
@@ -377,7 +382,7 @@ function restoreDefaults() {
   gap: 10px 14px;
   align-items: center;
   font-weight: 600;
-  color: #102040;
+  color: var(--text-primary);
 }
 
 .option-group .title {
@@ -387,11 +392,11 @@ function restoreDefaults() {
 .option-group .desc {
   grid-column: 2 / 3;
   font-size: 13px;
-  color: rgba(16, 31, 60, 0.6);
+  color: var(--text-secondary);
 }
 
 footer {
-  margin-top: 36px;
+  margin-top: 40px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -399,12 +404,12 @@ footer {
 }
 
 .status {
-  color: rgba(14, 29, 58, 0.7);
   font-size: 14px;
+  color: var(--text-secondary);
 }
 
 .status.error {
-  color: #b21e35;
+  color: var(--danger);
 }
 
 .buttons {
@@ -412,18 +417,24 @@ footer {
   gap: 12px;
 }
 
-footer button {
-  border: none;
-  padding: 10px 18px;
+.buttons button {
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
   border-radius: 12px;
-  background: rgba(12, 28, 56, 0.12);
-  color: #11213f;
+  padding: 10px 18px;
   font-weight: 600;
-  transition: background 0.2s ease;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 
-footer button:hover {
-  background: rgba(17, 33, 63, 0.22);
+.buttons button:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.buttons button:active {
+  transform: translateY(1px);
 }
 
 @media (max-width: 640px) {
