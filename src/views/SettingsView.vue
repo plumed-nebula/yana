@@ -236,7 +236,9 @@ function restoreDefaults() {
 
 <style scoped>
 .wrapper {
-  width: min(720px, 100%);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel {
@@ -246,6 +248,7 @@ function restoreDefaults() {
   padding: 32px;
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.55);
+  width: 100%;
 }
 
 .group-title {

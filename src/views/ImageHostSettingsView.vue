@@ -238,7 +238,9 @@ function handleManualSave() {
 
 <style scoped>
 .host-container {
-  width: min(920px, 100%);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel {
@@ -251,6 +253,7 @@ function handleManualSave() {
   flex-direction: column;
   gap: 24px;
   backdrop-filter: blur(18px);
+  width: 100%;
 }
 
 .panel-head h1 {

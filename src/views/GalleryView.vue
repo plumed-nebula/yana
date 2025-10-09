@@ -331,215 +331,230 @@ watch(
 
 <template>
   <div class="gallery-view">
-    <section class="filters">
-      <form class="filter-stack" @submit.prevent="handleSubmit">
-        <div class="pair">
-          <label class="filter-field field-left wide">
-            <span class="filter-title">文件名</span>
-            <input
-              v-model="keyword"
-              type="text"
-              placeholder="支持模糊搜索"
-              autocomplete="off"
-              class="control"
-            />
-          </label>
+    <div class="gallery-inner">
+      <section class="filters">
+        <form class="filter-stack" @submit.prevent="handleSubmit">
+          <div class="pair">
+            <label class="filter-field field-left wide">
+              <span class="filter-title">文件名</span>
+              <input
+                v-model="keyword"
+                type="text"
+                placeholder="支持模糊搜索"
+                autocomplete="off"
+                class="control"
+              />
+            </label>
 
-          <label class="filter-field field-right compact">
-            <span class="filter-title">图床</span>
-            <select
-              v-model="selectedHost"
-              :disabled="hostLoading"
-              class="control"
-            >
-              <option value="">全部图床</option>
-              <option v-for="host in hosts" :key="host" :value="host">
-                {{ host }}
-              </option>
-            </select>
-          </label>
-        </div>
-
-        <transition name="fold">
-          <div v-show="showAdvanced" class="advanced-block">
-            <div class="pair">
-              <label class="filter-field field-left">
-                <span class="filter-title">开始时间</span>
-                <input
-                  v-model="startDate"
-                  type="datetime-local"
-                  class="control"
-                />
-              </label>
-
-              <label class="filter-field field-right">
-                <span class="filter-title">结束时间</span>
-                <input
-                  v-model="endDate"
-                  type="datetime-local"
-                  class="control"
-                />
-              </label>
-            </div>
-
-            <div class="pair">
-              <label class="filter-field field-left">
-                <span class="filter-title">最小大小 (Bytes)</span>
-                <input
-                  v-model="minSize"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="control"
-                />
-              </label>
-
-              <label class="filter-field field-right">
-                <span class="filter-title">最大大小 (Bytes)</span>
-                <input
-                  v-model="maxSize"
-                  type="number"
-                  min="0"
-                  step="1"
-                  class="control"
-                />
-              </label>
-            </div>
+            <label class="filter-field field-right compact">
+              <span class="filter-title">图床</span>
+              <select
+                v-model="selectedHost"
+                :disabled="hostLoading"
+                class="control"
+              >
+                <option value="">全部图床</option>
+                <option v-for="host in hosts" :key="host" :value="host">
+                  {{ host }}
+                </option>
+              </select>
+            </label>
           </div>
-        </transition>
 
-        <button
-          type="button"
-          class="advanced-toggle"
-          :class="{ active: advancedActive }"
-          @click="toggleAdvanced"
-        >
-          {{ showAdvanced ? '收起高级搜索' : '高级搜索' }}
-        </button>
+          <transition name="fold">
+            <div v-show="showAdvanced" class="advanced-block">
+              <div class="pair">
+                <label class="filter-field field-left">
+                  <span class="filter-title">开始时间</span>
+                  <input
+                    v-model="startDate"
+                    type="datetime-local"
+                    class="control"
+                  />
+                </label>
 
-        <div class="action-row">
+                <label class="filter-field field-right">
+                  <span class="filter-title">结束时间</span>
+                  <input
+                    v-model="endDate"
+                    type="datetime-local"
+                    class="control"
+                  />
+                </label>
+              </div>
+
+              <div class="pair">
+                <label class="filter-field field-left">
+                  <span class="filter-title">最小大小 (Bytes)</span>
+                  <input
+                    v-model="minSize"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="control"
+                  />
+                </label>
+
+                <label class="filter-field field-right">
+                  <span class="filter-title">最大大小 (Bytes)</span>
+                  <input
+                    v-model="maxSize"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="control"
+                  />
+                </label>
+              </div>
+            </div>
+          </transition>
+
           <button
             type="button"
-            class="ghost"
-            @click="resetFilters"
-            :disabled="loading"
+            class="advanced-toggle"
+            :class="{ active: advancedActive }"
+            @click="toggleAdvanced"
           >
-            重置
+            {{ showAdvanced ? '收起高级搜索' : '高级搜索' }}
           </button>
-          <button type="submit" class="primary" :disabled="loading">
-            查询
-          </button>
-        </div>
-      </form>
-    </section>
 
-    <section class="results">
-      <header class="results-head">
-        <span class="summary">
-          <template v-if="loading">加载中…</template>
-          <template v-else>共 {{ items.length }} 张图片</template>
-        </span>
-        <label class="copy-format" title="复制时使用的格式">
-          <span class="label">链接选项</span>
-          <select v-model="copyFormat">
-            <option
-              v-for="option in copyFormatOptions"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
-      </header>
-
-      <span v-if="errorMessage" class="error">{{ errorMessage }}</span>
-
-      <div v-if="toast" :class="['action-toast', toast.kind]">
-        {{ toast.message }}
-      </div>
-
-      <div v-if="!loading && !items.length && !errorMessage" class="empty">
-        <p>暂无符合条件的图片</p>
-      </div>
-
-      <div v-else class="grid">
-        <GalleryItemCard
-          v-for="item in items"
-          :key="item.id"
-          :item="item"
-          @preview="openPreview"
-          @copy="handleCopy"
-          @delete="requestDelete"
-        />
-      </div>
-    </section>
-
-    <transition name="preview-fade">
-      <div
-        v-if="confirmTarget"
-        class="confirm-overlay"
-        @click.self="closeConfirm"
-      >
-        <div class="confirm-dialog">
-          <h3>确认删除</h3>
-          <p class="message">
-            确定要删除
-            <strong>{{ confirmTarget.file_name || confirmTarget.url }}</strong>
-            吗？
-          </p>
-          <p class="sub">
-            将调用 {{ confirmTarget.host }} 图床删除接口，并从图库移除此记录。
-          </p>
-          <p v-if="confirmError" class="confirm-error">{{ confirmError }}</p>
-          <div class="confirm-actions">
+          <div class="action-row">
             <button
               type="button"
               class="ghost"
-              @click="closeConfirm"
-              :disabled="deleteLoading"
+              @click="resetFilters"
+              :disabled="loading"
             >
-              取消
+              重置
             </button>
-            <button
-              type="button"
-              class="danger"
-              @click="confirmDeletion"
-              :disabled="deleteLoading"
-            >
-              {{ deleteLoading ? '正在删除…' : '删除' }}
+            <button type="submit" class="primary" :disabled="loading">
+              查询
             </button>
           </div>
-        </div>
-      </div>
-    </transition>
+        </form>
+      </section>
 
-    <transition name="preview-fade">
-      <div
-        v-if="previewItem"
-        class="preview-overlay"
-        @click.self="closePreview"
-      >
-        <div class="preview-dialog">
-          <img
-            :src="previewItem.url"
-            :alt="previewItem.file_name || previewItem.url"
+      <section class="results">
+        <header class="results-head">
+          <span class="summary">
+            <template v-if="loading">加载中…</template>
+            <template v-else>共 {{ items.length }} 张图片</template>
+          </span>
+          <label class="copy-format" title="复制时使用的格式">
+            <span class="label">链接选项</span>
+            <select v-model="copyFormat">
+              <option
+                v-for="option in copyFormatOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
+        </header>
+
+        <span v-if="errorMessage" class="error">{{ errorMessage }}</span>
+
+        <div v-if="toast" :class="['action-toast', toast.kind]">
+          {{ toast.message }}
+        </div>
+
+        <div v-if="!loading && !items.length && !errorMessage" class="empty">
+          <p>暂无符合条件的图片</p>
+        </div>
+
+        <div v-else class="grid">
+          <GalleryItemCard
+            v-for="item in items"
+            :key="item.id"
+            :item="item"
+            @preview="openPreview"
+            @copy="handleCopy"
+            @delete="requestDelete"
           />
         </div>
-        <button type="button" class="preview-close" @click="closePreview">
-          ×
-        </button>
-      </div>
-    </transition>
+      </section>
+
+      <transition name="preview-fade">
+        <div
+          v-if="confirmTarget"
+          class="confirm-overlay"
+          @click.self="closeConfirm"
+        >
+          <div class="confirm-dialog">
+            <h3>确认删除</h3>
+            <p class="message">
+              确定要删除
+              <strong>{{
+                confirmTarget.file_name || confirmTarget.url
+              }}</strong>
+              吗？
+            </p>
+            <p class="sub">
+              将调用 {{ confirmTarget.host }} 图床删除接口，并从图库移除此记录。
+            </p>
+            <p v-if="confirmError" class="confirm-error">{{ confirmError }}</p>
+            <div class="confirm-actions">
+              <button
+                type="button"
+                class="ghost"
+                @click="closeConfirm"
+                :disabled="deleteLoading"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                class="danger"
+                @click="confirmDeletion"
+                :disabled="deleteLoading"
+              >
+                {{ deleteLoading ? '正在删除…' : '删除' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </transition>
+
+      <transition name="preview-fade">
+        <div
+          v-if="previewItem"
+          class="preview-overlay"
+          @click.self="closePreview"
+        >
+          <div class="preview-dialog">
+            <img
+              :src="previewItem.url"
+              :alt="previewItem.file_name || previewItem.url"
+            />
+          </div>
+          <button type="button" class="preview-close" @click="closePreview">
+            ×
+          </button>
+        </div>
+      </transition>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .gallery-view {
-  width: min(1200px, 100%);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+.gallery-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.gallery-inner > section {
+  width: 100%;
 }
 
 .filters {

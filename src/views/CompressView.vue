@@ -237,7 +237,7 @@ async function handleTest() {
 
 <style scoped>
 .wrapper {
-  width: min(760px, 100%);
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -250,6 +250,7 @@ async function handleTest() {
   padding: 32px;
   backdrop-filter: blur(18px);
   border: 1px solid rgba(255, 255, 255, 0.6);
+  width: 100%;
 }
 
 header h1 {

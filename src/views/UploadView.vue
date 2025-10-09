@@ -783,8 +783,9 @@ function clearResults() {
 
 <style scoped>
 .upload-container {
-  width: min(780px, 100%);
-  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .panel {
@@ -797,6 +798,7 @@ function clearResults() {
   border: 1px solid rgba(15, 27, 53, 0.08);
   box-shadow: 0 18px 36px rgba(12, 20, 48, 0.16);
   backdrop-filter: blur(16px);
+  width: 100%; /* Ensure upload panel fills width */
 }
 
 .status {

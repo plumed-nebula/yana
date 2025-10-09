@@ -113,8 +113,13 @@ const viewProps = computed(() => {
   overflow: auto;
   padding: 32px 40px;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  flex-direction: column;
+}
+
+.content > * {
+  flex: 1;
+  width: 100%;
+  display: flex;
 }
 </style>
 
@@ -129,6 +134,26 @@ const viewProps = computed(() => {
     background-color: #2f2f2f;
   }
 }
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: linear-gradient(135deg, #f4f6fb 0%, #dde2f3 40%, #f4f6fb 100%);
+  color: inherit;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 button {
   cursor: pointer;
 }
