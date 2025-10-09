@@ -52,6 +52,15 @@ function handleDelete() {
   >
     <div class="image-wrapper">
       <img :src="item.url" :alt="displayName" loading="lazy" />
+      <button
+        type="button"
+        class="icon-btn danger delete-btn"
+        @click.stop="handleDelete"
+        aria-label="删除"
+        title="删除"
+      >
+        <Trash2 :size="18" />
+      </button>
     </div>
     <figcaption class="card-overlay">
       <div class="overlay-content">
@@ -68,15 +77,6 @@ function handleDelete() {
             title="复制链接"
           >
             <Link2 :size="18" />
-          </button>
-          <button
-            type="button"
-            class="icon-btn danger"
-            @click.stop="handleDelete"
-            aria-label="删除"
-            title="删除"
-          >
-            <Trash2 :size="18" />
           </button>
         </div>
       </div>
@@ -123,6 +123,21 @@ function handleDelete() {
   object-fit: cover;
   background: #f6f8fb;
   pointer-events: none;
+}
+
+.delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.card:hover .delete-btn {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .card-overlay {

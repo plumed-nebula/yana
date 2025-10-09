@@ -56,8 +56,7 @@ onBeforeUnmount(() => {
     <div class="title-meta" data-tauri-drag-region>
       <span class="app-icon" aria-hidden="true">🖼️</span>
       <div class="titles">
-        <span class="name">Yana Studio</span>
-        <span class="subtitle">Unified Image Toolkit</span>
+        <span class="name">Yana</span>
       </div>
     </div>
     <div class="drag-spacer" data-tauri-drag-region />
@@ -75,7 +74,6 @@ onBeforeUnmount(() => {
       <button
         type="button"
         class="action"
-        :class="{ active: isMaximized }"
         :aria-label="isMaximized ? '还原窗口' : '最大化'"
         @click="handleToggleMaximize"
       >
@@ -88,17 +86,25 @@ onBeforeUnmount(() => {
           <rect x="3" y="3" width="10" height="10" rx="1.6" ry="1.6" />
         </svg>
         <svg v-else viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-          <path
-            d="M5 5h6a1 1 0 0 1 1 1v5H6a1 1 0 0 1-1-1z"
+          <rect
+            x="2"
+            y="2"
+            width="12"
+            height="12"
+            rx="1"
             fill="none"
+            stroke="currentColor"
             stroke-width="1.4"
-            stroke-linejoin="round"
           />
-          <path
-            d="M4 10V6a2 2 0 0 1 2-2h4"
+          <rect
+            x="4"
+            y="4"
+            width="8"
+            height="8"
+            rx="0.5"
             fill="none"
+            stroke="currentColor"
             stroke-width="1.4"
-            stroke-linejoin="round"
           />
         </svg>
       </button>
@@ -163,11 +169,6 @@ onBeforeUnmount(() => {
   color: #131928;
 }
 
-.subtitle {
-  font-size: 10px;
-  color: rgba(19, 25, 40, 0.6);
-}
-
 .window-actions {
   display: flex;
   align-items: center;
@@ -209,10 +210,6 @@ onBeforeUnmount(() => {
   background: rgba(22, 32, 56, 0.16);
 }
 
-.action.active {
-  background: rgba(22, 32, 56, 0.12);
-}
-
 .action.danger:hover {
   background: rgba(230, 70, 70, 0.14);
   color: #d92c2c;
@@ -240,10 +237,6 @@ onBeforeUnmount(() => {
   .titlebar {
     height: 44px;
     padding: 0 8px;
-  }
-
-  .subtitle {
-    display: none;
   }
 
   .action {
