@@ -13,6 +13,11 @@
     "dialog:allow-message",
     "fs:allow-copy-file",
     "http:default",
+  "os:default",
+    "core:window:allow-close",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-unmaximize",
     {
       "identifier": "http:allow-fetch",
       "allow": [

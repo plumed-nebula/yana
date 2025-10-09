@@ -63,7 +63,7 @@ function restoreDefaults() {
   settings.pngCompressionMode.value = 'lossless';
   settings.pngOptimization.value = 'default';
   settings.enableUploadCompression.value = false;
-  settings.maxUploadConcurrency.value = 5;
+  settings.maxConcurrentUploads.value = 5;
 }
 </script>
 
@@ -93,7 +93,7 @@ function restoreDefaults() {
       <section class="field">
         <div class="field-head">
           <label for="upload-concurrency">最大并发上传数</label>
-          <span class="value">{{ settings.maxUploadConcurrency.value }}</span>
+          <span class="value">{{ settings.maxConcurrentUploads.value }}</span>
         </div>
         <div class="field-body">
           <input
@@ -101,7 +101,7 @@ function restoreDefaults() {
             type="number"
             min="1"
             max="10"
-            v-model.number="settings.maxUploadConcurrency.value"
+            v-model.number="settings.maxConcurrentUploads.value"
           />
         </div>
         <p class="help">

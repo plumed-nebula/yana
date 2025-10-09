@@ -12,7 +12,7 @@ type PersistedSettings = {
   pngCompressionMode: PngCompressionMode;
   pngOptimization: PngOptimizationLevel;
   enableUploadCompression: boolean;
-  maxUploadConcurrency: number;
+  maxConcurrentUploads: number;
 };
 
 type SettingsState = PersistedSettings;
@@ -24,7 +24,7 @@ const DEFAULTS: PersistedSettings = {
   pngCompressionMode: 'lossless',
   pngOptimization: 'default',
   enableUploadCompression: false,
-  maxUploadConcurrency: 5,
+  maxConcurrentUploads: 5,
 };
 
 let singleton: ReturnType<typeof createStore> | null = null;
@@ -67,7 +67,7 @@ function sanitizePngOptimization(value: unknown): PngOptimizationLevel {
 
 function sanitizeConcurrency(input: unknown): number {
   let n = Number(input);
-  if (!Number.isFinite(n)) n = DEFAULTS.maxUploadConcurrency;
+  if (!Number.isFinite(n)) n = DEFAULTS.maxConcurrentUploads;
   n = Math.round(n);
   if (n < 1) n = 1;
   if (n > 10) n = 10;
@@ -75,10 +75,16 @@ function sanitizeConcurrency(input: unknown): number {
 }
 
 function normalizePayload(
-  payload: Partial<PersistedSettings> | null | undefined
+  payload:
+    | (Partial<PersistedSettings> & { maxUploadConcurrency?: number })
+    | null
+    | undefined
 ): PersistedSettings {
   const pngModeFromBackend =
     (payload as any)?.pngCompressionMode ?? (payload as any)?.pngMode;
+  const concurrencyFromBackend =
+    (payload as any)?.maxConcurrentUploads ??
+    (payload as any)?.maxUploadConcurrency;
   return {
     quality: sanitizeQuality(payload?.quality ?? DEFAULTS.quality),
     convertToWebp: Boolean(payload?.convertToWebp ?? DEFAULTS.convertToWebp),
@@ -94,8 +100,8 @@ function normalizePayload(
     enableUploadCompression: Boolean(
       payload?.enableUploadCompression ?? DEFAULTS.enableUploadCompression
     ),
-    maxUploadConcurrency: sanitizeConcurrency(
-      payload?.maxUploadConcurrency ?? DEFAULTS.maxUploadConcurrency
+    maxConcurrentUploads: sanitizeConcurrency(
+      concurrencyFromBackend ?? DEFAULTS.maxConcurrentUploads
     ),
   };
 }
@@ -127,7 +133,7 @@ function createStore() {
       state.pngCompressionMode = normalized.pngCompressionMode;
       state.pngOptimization = normalized.pngOptimization;
       state.enableUploadCompression = normalized.enableUploadCompression;
-      state.maxUploadConcurrency = normalized.maxUploadConcurrency;
+      state.maxConcurrentUploads = normalized.maxConcurrentUploads;
       await info(`[settings] state after load: ${safeJson({ ...state })}`);
     } catch (err) {
       await logError(`[settings] load failed: ${describeError(err)}`);
@@ -156,7 +162,7 @@ function createStore() {
       pngCompressionMode: sanitizePngMode(state.pngCompressionMode),
       pngOptimization: sanitizePngOptimization(state.pngOptimization),
       enableUploadCompression: Boolean(state.enableUploadCompression),
-      maxUploadConcurrency: sanitizeConcurrency(state.maxUploadConcurrency),
+      maxConcurrentUploads: sanitizeConcurrency(state.maxConcurrentUploads),
     };
     try {
       await invoke('save_settings', { settings: payload });
@@ -183,7 +189,7 @@ function createStore() {
 
   // 监听整个 state 对象以简化逻辑并确保触发
   watch(
-    state,
+    () => ({ ...state }),
     (newState, oldState) => {
       const snapshot = {
         new: { ...newState },
@@ -198,10 +204,10 @@ function createStore() {
       }
 
       const sanitizedConcurrency = sanitizeConcurrency(
-        newState.maxUploadConcurrency
+        newState.maxConcurrentUploads
       );
-      if (sanitizedConcurrency !== newState.maxUploadConcurrency) {
-        state.maxUploadConcurrency = sanitizedConcurrency;
+      if (sanitizedConcurrency !== newState.maxConcurrentUploads) {
+        state.maxConcurrentUploads = sanitizedConcurrency;
       }
 
       // 关闭 WebP 时自动取消动图强制转换
@@ -228,7 +234,7 @@ function createStore() {
     pngCompressionMode: refs.pngCompressionMode,
     pngOptimization: refs.pngOptimization,
     enableUploadCompression: refs.enableUploadCompression,
-    maxUploadConcurrency: refs.maxUploadConcurrency,
+    maxConcurrentUploads: refs.maxConcurrentUploads,
     ready: readonly(ready),
     loading: readonly(loading),
     error: readonly(lastError),

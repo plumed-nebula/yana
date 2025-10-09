@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue';
 import Sidebar from './components/Sidebar.vue';
+import Titlebar from './components/Titlebar.vue';
 import SettingsView from './views/SettingsView.vue';
 import CompressView from './views/CompressView.vue';
 import UploadView from './views/UploadView.vue';
@@ -8,6 +9,8 @@ import GalleryView from './views/GalleryView.vue';
 import ImageHostSettingsView from './views/ImageHostSettingsView.vue';
 import { useImageHostStore } from './stores/imageHosts';
 import type { LoadedPlugin } from './plugins/registry';
+import { platform } from '@tauri-apps/plugin-os';
+import { warn } from '@tauri-apps/plugin-log';
 
 type ViewKey = 'compress' | 'upload' | 'gallery' | 'hosts' | 'settings';
 
@@ -20,6 +23,35 @@ const VIEWS: Record<ViewKey, any> = {
 };
 
 const imageHostStore = useImageHostStore();
+
+const MOBILE_PLATFORMS = new Set(['android', 'ios']);
+const isMobile = ref(false);
+
+const determinePlatform = async () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (!('__TAURI__' in window)) {
+    isMobile.value = false;
+    return;
+  }
+
+  try {
+    const currentPlatform = await platform();
+    if (currentPlatform) {
+      isMobile.value = MOBILE_PLATFORMS.has(currentPlatform.toLowerCase());
+      return;
+    }
+  } catch (error) {
+    // console.warn('Failed to detect platform via Tauri OS plugin', error);
+    await warn(
+      `[App] Failed to detect platform via Tauri OS plugin: ${String(error)}`
+    );
+  }
+
+  isMobile.value = false;
+};
 
 const current = ref<ViewKey>('upload');
 function onNavigate(key: ViewKey) {
@@ -37,6 +69,7 @@ const pluginList = computed(
 const pluginLoading = computed(() => imageHostStore.loading.value);
 
 onMounted(() => {
+  void determinePlatform();
   void imageHostStore.ensureLoaded();
 });
 
@@ -86,26 +119,36 @@ const viewProps = computed(() => {
 </script>
 
 <template>
-  <div class="layout">
-    <Sidebar
-      :current="current"
-      :plugins="pluginList"
-      :selected-plugin-id="selectedPluginId"
-      :plugin-loading="pluginLoading"
-      @navigate="onNavigate"
-      @select-plugin="onSelectPlugin"
-    />
-    <section class="content">
-      <component :is="activeComponent" v-bind="viewProps" />
-    </section>
+  <div class="app-shell">
+    <Titlebar v-if="!isMobile" />
+    <div class="layout">
+      <Sidebar
+        :current="current"
+        :plugins="pluginList"
+        :selected-plugin-id="selectedPluginId"
+        :plugin-loading="pluginLoading"
+        @navigate="onNavigate"
+        @select-plugin="onSelectPlugin"
+      />
+      <section class="content">
+        <component :is="activeComponent" v-bind="viewProps" />
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.layout {
-  display: flex;
+.app-shell {
   height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: linear-gradient(135deg, #f4f6fb 0%, #dde2f3 40%, #f4f6fb 100%);
+}
+
+.layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
 }
 
 .content {

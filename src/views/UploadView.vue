@@ -452,7 +452,7 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
       uploadEntries.length
     );
     const concurrency = clampConcurrency(
-      globalSettings.maxUploadConcurrency.value
+      globalSettings.maxConcurrentUploads.value
     );
     let uploadCompleted = 0;
 

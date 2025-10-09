@@ -31,6 +31,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_os::init())
         // 日志：根据环境选择输出目标与日志级别，开发环境输出到控制台/前端，生产仅写文件
         .plugin(
             tauri_plugin_log::Builder::new()
