@@ -88,7 +88,29 @@ export default {
     try {
       logger.info?.(`[sda1] delete request -> ${deleteId}`);
       // 尝试用 DELETE 方法调用删除 URL；如果服务器需要 POST，可根据返回再调整
-      const res = await context.httpRequest(deleteId, { method: 'DELETE' });
+      let res;
+      try {
+  // 目标服务要求使用 GET 方式来触发删除（根据测试），因此使用 GET
+  res = await context.httpRequest(deleteId, { method: 'GET' });
+      } catch (reqErr) {
+        // 明确记录请求抛出的异常，并返回给调用方便于分析
+        const errMsg = reqErr instanceof Error ? reqErr.message : String(reqErr);
+        logger.error?.('[sda1] delete request threw an error', reqErr);
+        return { success: false, message: 'delete request threw', debug: { error: errMsg } };
+      }
+
+      // 记录更多调试信息 —— 如果 res 为 null/undefined 专门标记
+      try {
+        if (res == null) {
+          logger.warn?.('[sda1] delete response is empty (null/undefined)');
+          return { success: false, message: 'empty delete response', debug: { responsePresent: false, typeof: typeof res, value: res } };
+        }
+        // 打印类型与键名，避免大型对象被控制台截断
+        const info = { typeof: typeof res, keys: Object.keys(res instanceof Object ? res : {}) };
+        logger.debug?.('[sda1] delete response', info);
+      } catch (e) {
+        // ignore logging errors
+      }
 
       // 尝试判断是否成功
       let ok = false;
@@ -117,16 +139,16 @@ export default {
 
       if (ok) {
         logger.info?.(`[sda1] delete success -> ${deleteId}`);
-        return { success: true };
+        return { success: true, debug: { status: res?.status, data: res?.data ?? res?.rawText ?? null } };
       }
 
       const msg = `sda1: 删除接口返回非成功状态`;
       logger.warn?.(msg, res);
-      return { success: false, message: msg };
+      return { success: false, message: msg, debug: { status: res?.status, data: res?.data ?? res?.rawText ?? null } };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error?.(`[sda1] delete failed: ${message}`);
-      return { success: false, message };
+      return { success: false, message, debug: { error: message } };
     }
   },
 };
