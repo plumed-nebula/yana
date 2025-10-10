@@ -853,7 +853,7 @@ watch(
 .preview-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(6, 10, 22, 0.78);
+  background: transparent;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -918,7 +918,7 @@ watch(
 .confirm-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 8, 18, 0.72);
+  background: transparent;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1122,7 +1122,7 @@ watch(
   content: '';
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--modal-backdrop);
   z-index: -1; /* sit behind dialog but above page */
 }
 

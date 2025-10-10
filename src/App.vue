@@ -217,6 +217,8 @@ const viewProps = computed(() => {
   --scrollbar-bg: rgba(0, 0, 0, 0.06);
   --scrollbar-thumb: rgba(0, 0, 0, 0.18);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+  /* modal/backdrop for light theme */
+  --modal-backdrop: rgba(6, 10, 22, 0.6);
 }
 
 :root[data-theme='dark'] {
@@ -258,6 +260,8 @@ const viewProps = computed(() => {
   --scrollbar-bg: rgba(255, 255, 255, 0.03);
   --scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
+  /* modal/backdrop for dark theme */
+  --modal-backdrop: rgba(6, 10, 22, 0.78);
 }
 
 html,
