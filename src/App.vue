@@ -213,6 +213,10 @@ const viewProps = computed(() => {
   --action-active: rgba(46, 62, 105, 0.18);
   --shadow-soft: 0 18px 38px rgba(15, 27, 53, 0.12);
   --shadow-strong: 0 24px 52px rgba(15, 27, 53, 0.16);
+  /* scrollbar colors for light theme */
+  --scrollbar-bg: rgba(0, 0, 0, 0.06);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.18);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
 }
 
 :root[data-theme='dark'] {
@@ -250,6 +254,10 @@ const viewProps = computed(() => {
   --action-active: rgba(255, 255, 255, 0.18);
   --shadow-soft: 0 24px 44px rgba(4, 8, 16, 0.45);
   --shadow-strong: 0 30px 66px rgba(2, 4, 10, 0.66);
+  /* scrollbar colors for dark theme */
+  --scrollbar-bg: rgba(255, 255, 255, 0.03);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
 }
 
 html,
@@ -281,6 +289,38 @@ body::before {
 
 * {
   box-sizing: border-box;
+}
+
+/* Global thin scrollbar styles (WebKit/Chromium + Firefox) */
+/* Uses variables defined per theme above */
+html,
+body,
+#app {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-bg);
+}
+
+/* WebKit-based browsers */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-bg);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color 120ms ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 button {

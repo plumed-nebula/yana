@@ -476,64 +476,71 @@ watch(
         </div>
       </section>
 
-      <transition name="preview-fade">
-        <div
-          v-if="confirmTarget"
-          class="confirm-overlay"
-          @click.self="closeConfirm"
-        >
-          <div class="confirm-dialog">
-            <h3>确认删除</h3>
-            <p class="message">
-              确定要删除
-              <strong>{{
-                confirmTarget.file_name || confirmTarget.url
-              }}</strong>
-              吗？
-            </p>
-            <p class="sub">
-              将调用 {{ confirmTarget.host }} 图床删除接口，并从图库移除此记录。
-            </p>
-            <p v-if="confirmError" class="confirm-error">{{ confirmError }}</p>
-            <div class="confirm-actions">
-              <button
-                type="button"
-                class="ghost"
-                @click="closeConfirm"
-                :disabled="deleteLoading"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                class="danger"
-                @click="confirmDeletion"
-                :disabled="deleteLoading"
-              >
-                {{ deleteLoading ? '正在删除…' : '删除' }}
-              </button>
+      <teleport to="body">
+        <transition name="preview-fade">
+          <div
+            v-if="confirmTarget"
+            class="confirm-overlay"
+            @click.self="closeConfirm"
+          >
+            <div class="confirm-dialog">
+              <h3>确认删除</h3>
+              <p class="message">
+                确定要删除
+                <strong>{{
+                  confirmTarget.file_name || confirmTarget.url
+                }}</strong>
+                吗？
+              </p>
+              <p class="sub">
+                将调用
+                {{ confirmTarget.host }} 图床删除接口，并从图库移除此记录。
+              </p>
+              <p v-if="confirmError" class="confirm-error">
+                {{ confirmError }}
+              </p>
+              <div class="confirm-actions">
+                <button
+                  type="button"
+                  class="ghost"
+                  @click="closeConfirm"
+                  :disabled="deleteLoading"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  class="danger"
+                  @click="confirmDeletion"
+                  :disabled="deleteLoading"
+                >
+                  {{ deleteLoading ? '正在删除…' : '删除' }}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </transition>
+        </transition>
+      </teleport>
 
-      <transition name="preview-fade">
-        <div
-          v-if="previewItem"
-          class="preview-overlay"
-          @click.self="closePreview"
-        >
-          <div class="preview-dialog">
-            <img
-              :src="previewItem.url"
-              :alt="previewItem.file_name || previewItem.url"
-            />
+      <teleport to="body">
+        <transition name="preview-fade">
+          <div
+            v-if="previewItem"
+            class="preview-overlay"
+            @click.self="closePreview"
+          >
+            <div class="preview-dialog">
+              <img
+                :src="previewItem.url"
+                :alt="previewItem.file_name || previewItem.url"
+              />
+            </div>
+            <button type="button" class="preview-close" @click="closePreview">
+              ×
+            </button>
           </div>
-          <button type="button" class="preview-close" @click="closePreview">
-            ×
-          </button>
-        </div>
-      </transition>
+        </transition>
+      </teleport>
     </div>
   </div>
 </template>
@@ -1085,5 +1092,55 @@ watch(
   .confirm-actions .danger {
     width: 100%;
   }
+}
+</style>
+
+<!-- Global styles for teleported modals (ensure they are fixed to viewport and block interactions) -->
+<style>
+/* Ensure teleported overlays sit above everything and are centered in viewport */
+.preview-overlay,
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: rgba(
+    0,
+    0,
+    0,
+    0
+  ); /* background handled inside classes, keep transparent by default */
+  z-index: 9999;
+  pointer-events: auto;
+}
+
+/* Backdrop colors are already set in scoped styles (.preview-overlay/.confirm-overlay) but
+   ensure teleported overlay background covers viewport and blocks clicks to underlying content */
+.preview-overlay::before,
+.confirm-overlay::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: -1; /* sit behind dialog but above page */
+}
+
+/* Prevent underlying elements from receiving pointer events while overlay is visible */
+body.modal-open *:not(.preview-overlay):not(.confirm-overlay) {
+  pointer-events: none;
+}
+
+/* But allow interactions with the overlay itself and its children */
+.preview-overlay,
+.confirm-overlay,
+.preview-overlay *,
+.confirm-overlay * {
+  pointer-events: auto;
+}
+
+/* Ensure preview close button sits above dialog */
+.preview-close {
+  z-index: 10001;
 }
 </style>
