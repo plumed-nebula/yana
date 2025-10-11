@@ -1,4 +1,4 @@
-import { reactive, watch, ref, readonly, toRefs } from 'vue';
+import { customRef, ref, readonly } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { info, debug, error as logError } from '@tauri-apps/plugin-log';
 
@@ -14,8 +14,6 @@ type PersistedSettings = {
   enableUploadCompression: boolean;
   maxConcurrentUploads: number;
 };
-
-type SettingsState = PersistedSettings;
 
 const DEFAULTS: PersistedSettings = {
   quality: 80,
@@ -107,65 +105,91 @@ function normalizePayload(
 }
 
 function createStore() {
-  const state = reactive<SettingsState>({ ...DEFAULTS });
   const ready = ref(false);
   const loading = ref(false);
   const lastError = ref<string | null>(null);
 
   let hydrating = true;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingPersist = false;
+
+  // 内部存储实际值
+  const internalState: PersistedSettings = { ...DEFAULTS };
+
+  // 创建自动保存的 customRef
+  function createAutoSaveRef<T>(
+    key: keyof PersistedSettings,
+    sanitize?: (value: T) => T
+  ) {
+    return customRef<T>((track, trigger) => {
+      return {
+        get() {
+          track();
+          return internalState[key] as T;
+        },
+        set(newValue: T) {
+          // 应用清理函数（如果有）
+          const sanitized = sanitize ? sanitize(newValue) : newValue;
+
+          // 更新内部状态
+          (internalState[key] as T) = sanitized;
+
+          // 触发响应式更新
+          trigger();
+
+          // 如果不在加载中，触发保存
+          if (!hydrating && ready.value) {
+            void debug(
+              `[settings] ${key} changed to ${sanitized}, scheduling persist`
+            );
+            schedulePersist();
+          }
+        },
+      };
+    });
+  }
 
   async function load() {
     if (loading.value) return;
     loading.value = true;
     hydrating = true;
-    pendingPersist = false;
     lastError.value = null;
     try {
       const payload = await invoke<PersistedSettings>('load_settings');
       await info(`[settings] loaded from backend: ${safeJson(payload)}`);
       const normalized = normalizePayload(payload);
       await info(`[settings] normalized: ${safeJson(normalized)}`);
-      state.quality = normalized.quality;
-      state.convertToWebp = normalized.convertToWebp;
-      state.forceAnimatedWebp = normalized.forceAnimatedWebp;
-      state.pngCompressionMode = normalized.pngCompressionMode;
-      state.pngOptimization = normalized.pngOptimization;
-      state.enableUploadCompression = normalized.enableUploadCompression;
-      state.maxConcurrentUploads = normalized.maxConcurrentUploads;
-      await info(`[settings] state after load: ${safeJson({ ...state })}`);
+
+      // 直接更新内部状态，不触发 setter
+      Object.assign(internalState, normalized);
+
+      await info(`[settings] state after load: ${safeJson(internalState)}`);
     } catch (err) {
       await logError(`[settings] load failed: ${describeError(err)}`);
       lastError.value = err instanceof Error ? err.message : String(err);
-      // 加载失败时回退到默认值
-      Object.assign(state, DEFAULTS);
+      Object.assign(internalState, DEFAULTS);
     } finally {
       loading.value = false;
       hydrating = false;
       ready.value = true;
-      if (pendingPersist) {
-        const shouldPersist = pendingPersist;
-        pendingPersist = false;
-        if (shouldPersist) {
-          schedulePersist();
-        }
-      }
     }
   }
 
   async function persist() {
     const payload: PersistedSettings = {
-      quality: sanitizeQuality(state.quality),
-      convertToWebp: state.convertToWebp,
-      forceAnimatedWebp: state.forceAnimatedWebp,
-      pngCompressionMode: sanitizePngMode(state.pngCompressionMode),
-      pngOptimization: sanitizePngOptimization(state.pngOptimization),
-      enableUploadCompression: Boolean(state.enableUploadCompression),
-      maxConcurrentUploads: sanitizeConcurrency(state.maxConcurrentUploads),
+      quality: sanitizeQuality(internalState.quality),
+      convertToWebp: internalState.convertToWebp,
+      forceAnimatedWebp: internalState.forceAnimatedWebp,
+      pngCompressionMode: sanitizePngMode(internalState.pngCompressionMode),
+      pngOptimization: sanitizePngOptimization(internalState.pngOptimization),
+      enableUploadCompression: Boolean(internalState.enableUploadCompression),
+      maxConcurrentUploads: sanitizeConcurrency(
+        internalState.maxConcurrentUploads
+      ),
     };
     try {
+      await debug(`[settings] persist: saving ${safeJson(payload)}`);
       await invoke('save_settings', { settings: payload });
+      await info('[settings] persist: save_settings success');
       lastError.value = null;
     } catch (err) {
       await logError(`[settings] save failed: ${describeError(err)}`);
@@ -174,67 +198,54 @@ function createStore() {
   }
 
   function schedulePersist() {
-    if (!ready.value || hydrating) {
-      pendingPersist = true;
+    if (hydrating) {
+      void debug(`[settings] schedulePersist ignored: still hydrating`);
       return;
     }
-    pendingPersist = false;
+    if (!ready.value) {
+      void debug(`[settings] schedulePersist ignored: not ready yet`);
+      return;
+    }
+
+    void debug(`[settings] schedulePersist: will persist in 400ms`);
     if (persistTimer) clearTimeout(persistTimer);
     persistTimer = setTimeout(() => {
       persistTimer = null;
-      pendingPersist = false;
       void persist();
     }, 400);
   }
 
-  // 监听整个 state 对象以简化逻辑并确保触发
-  watch(
-    () => ({ ...state }),
-    (newState, oldState) => {
-      const snapshot = {
-        new: { ...newState },
-        old: { ...oldState },
-      };
-      void debug(`[settings] state changed: ${safeJson(snapshot)}`);
-
-      // 实时校验并更新
-      const sanitizedQuality = sanitizeQuality(newState.quality);
-      if (sanitizedQuality !== newState.quality) {
-        state.quality = sanitizedQuality;
-      }
-
-      const sanitizedConcurrency = sanitizeConcurrency(
-        newState.maxConcurrentUploads
-      );
-      if (sanitizedConcurrency !== newState.maxConcurrentUploads) {
-        state.maxConcurrentUploads = sanitizedConcurrency;
-      }
-
-      // 关闭 WebP 时自动取消动图强制转换
-      if (!newState.convertToWebp && oldState.convertToWebp) {
-        if (state.forceAnimatedWebp) {
-          void info('[settings] auto-disabling forceAnimatedWebp');
-          state.forceAnimatedWebp = false;
-        }
-      }
-
-      schedulePersist();
-    },
-    { deep: true }
-  );
-
+  // 启动加载
   void load();
 
-  const refs = toRefs(state);
+  // 创建所有的 auto-save refs
+  const quality = createAutoSaveRef<number>('quality', sanitizeQuality);
+  const convertToWebp = createAutoSaveRef<boolean>('convertToWebp');
+  const forceAnimatedWebp = createAutoSaveRef<boolean>('forceAnimatedWebp');
+  const pngCompressionMode = createAutoSaveRef<PngCompressionMode>(
+    'pngCompressionMode',
+    sanitizePngMode
+  );
+  const pngOptimization = createAutoSaveRef<PngOptimizationLevel>(
+    'pngOptimization',
+    sanitizePngOptimization
+  );
+  const enableUploadCompression = createAutoSaveRef<boolean>(
+    'enableUploadCompression'
+  );
+  const maxConcurrentUploads = createAutoSaveRef<number>(
+    'maxConcurrentUploads',
+    sanitizeConcurrency
+  );
 
   return {
-    quality: refs.quality,
-    convertToWebp: refs.convertToWebp,
-    forceAnimatedWebp: refs.forceAnimatedWebp,
-    pngCompressionMode: refs.pngCompressionMode,
-    pngOptimization: refs.pngOptimization,
-    enableUploadCompression: refs.enableUploadCompression,
-    maxConcurrentUploads: refs.maxConcurrentUploads,
+    quality,
+    convertToWebp,
+    forceAnimatedWebp,
+    pngCompressionMode,
+    pngOptimization,
+    enableUploadCompression,
+    maxConcurrentUploads,
     ready: readonly(ready),
     loading: readonly(loading),
     error: readonly(lastError),

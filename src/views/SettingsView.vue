@@ -93,7 +93,7 @@ function restoreDefaults() {
       <section class="field">
         <div class="field-head">
           <label for="upload-concurrency">最大并发上传数</label>
-          <span class="value">{{ settings.maxConcurrentUploads.value }}</span>
+          <span class="value">{{ settings.maxConcurrentUploads }}</span>
         </div>
         <div class="field-body">
           <input
@@ -117,7 +117,7 @@ function restoreDefaults() {
       <section class="field">
         <div class="field-head">
           <label for="quality">压缩比率（0-100）</label>
-          <span class="value">{{ settings.quality.value }}</span>
+          <span class="value">{{ settings.quality }}</span>
         </div>
         <div class="field-body">
           <input
