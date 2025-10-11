@@ -11,7 +11,8 @@
 export const name = 'SM.MS 图床';
 /** 插件版本号 */
 export const version = '1.0.0';
-
+/** 插件作者，可根据实际情况调整 */
+export const author = 'Null';
 /** 插件功能描述 */
 export const description = '使用 SM.MS API v2 进行图床上传与删除操作。';
 
