@@ -161,22 +161,14 @@ function handleManualSave() {
                     </label>
                   </template>
                   <template v-else-if="descriptor.type === 'select'">
-                    <select
+                    <GlobalSelect
                       :id="`param-${descriptor.key}`"
                       v-model="activeValues[descriptor.key]"
-                      :required="descriptor.required"
-                    >
-                      <option value="" v-if="!descriptor.required">
-                        -- 请选择 --
-                      </option>
-                      <option
-                        v-for="option in descriptor.options ?? []"
-                        :key="`${descriptor.key}-${option.value}`"
-                        :value="option.value"
-                      >
-                        {{ option.label }}
-                      </option>
-                    </select>
+                      :options="descriptor.options"
+                      :placeholder="
+                        !descriptor.required ? '-- 请选择 --' : undefined
+                      "
+                    />
                   </template>
                   <template v-else-if="descriptor.type === 'textarea'">
                     <textarea

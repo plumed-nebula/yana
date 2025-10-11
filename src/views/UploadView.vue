@@ -14,6 +14,7 @@ import type { LoadedPlugin } from '../plugins/registry';
 import type { PluginUploadResult } from '../types/imageHostPlugin';
 import { insertGalleryItem } from '../types/gallery';
 import { ClipboardCopy } from 'lucide-vue-next';
+import GlobalSelect from '../components/GlobalSelect.vue';
 
 type FormatKey = 'link' | 'html' | 'bbcode' | 'markdown';
 
@@ -96,6 +97,9 @@ const progress = reactive({
 let progressResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 const pluginList = computed(() => plugins.value as readonly LoadedPlugin[]);
+const pluginOptions = computed(() =>
+  pluginList.value.map((p) => ({ value: p.id, label: p.name }))
+);
 
 const formatEntries = computed(
   () => Object.entries(formatLabels) as Array<[FormatKey, string]>
@@ -727,21 +731,13 @@ async function uploadClipboard() {
       <template v-else>
         <div class="selector">
           <label for="plugin-select">图床插件</label>
-          <select
+          <GlobalSelect
             id="plugin-select"
-            :value="localPluginId ?? ''"
+            v-model="localPluginId"
+            :options="pluginOptions"
             :disabled="uploading"
-            @change="updateSelected(($event.target as HTMLSelectElement).value)"
-          >
-            <option value="" disabled>请选择一个插件</option>
-            <option
-              v-for="plugin in pluginList"
-              :key="plugin.id"
-              :value="plugin.id"
-            >
-              {{ plugin.name }}
-            </option>
-          </select>
+            @update:modelValue="updateSelected"
+          />
         </div>
 
         <div

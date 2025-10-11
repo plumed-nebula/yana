@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import GlobalSelect from '../components/GlobalSelect.vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { info, error as logError } from '@tauri-apps/plugin-log';
@@ -32,6 +33,11 @@ const pngOptimizationDescription = computed(() => {
       return '兼顾速度与压缩率，适用于大多数情况。';
   }
 });
+const pngOptions = [
+  { value: 'best', label: '最佳压缩（最慢）' },
+  { value: 'default', label: '标准（推荐）' },
+  { value: 'fast', label: '快速（体积略大）' },
+];
 
 const animatedHint = computed(() =>
   convertToWebpEnabled.value
@@ -213,11 +219,10 @@ function restoreDefaults() {
           </span>
         </div>
         <div class="field-body">
-          <select id="png-opt" v-model="settings.pngOptimization.value">
-            <option value="best">最佳压缩（最慢）</option>
-            <option value="default">标准（推荐）</option>
-            <option value="fast">快速（体积略大）</option>
-          </select>
+          <GlobalSelect
+            v-model="settings.pngOptimization.value"
+            :options="pngOptions"
+          />
         </div>
         <p class="help">{{ pngOptimizationDescription }}</p>
       </section>

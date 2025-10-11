@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed, onBeforeUnmount, watch } from 'vue';
+import GlobalSelect from '../components/GlobalSelect.vue';
 import GalleryItemCard from '../components/GalleryItemCard.vue';
 import type { GalleryItem, GalleryQuery } from '../types/gallery';
 import {
@@ -13,7 +14,6 @@ import {
   warn as logWarn,
 } from '@tauri-apps/plugin-log';
 import { useImageHostStore } from '../stores/imageHosts';
-import { ChevronDown } from 'lucide-vue-next';
 
 const keyword = ref('');
 const selectedHost = ref('');
@@ -45,6 +45,10 @@ const copyFormatOptions: Array<{
   { value: 'markdown', label: 'Markdown' },
   { value: 'bbcode', label: 'BBCode' },
 ];
+// options for host select
+const hostOptions = computed(() =>
+  hosts.value.map((h) => ({ value: h, label: h }))
+);
 
 // 批量选择模式状态
 const batchMode = ref(false);
@@ -458,16 +462,12 @@ watch(
 
             <label class="filter-field field-right compact">
               <span class="filter-title">图床</span>
-              <select
+              <GlobalSelect
                 v-model="selectedHost"
+                :options="[{ value: '', label: '全部图床' }, ...hostOptions]"
                 :disabled="hostLoading"
-                class="control"
-              >
-                <option value="">全部图床</option>
-                <option v-for="host in hosts" :key="host" :value="host">
-                  {{ host }}
-                </option>
-              </select>
+                class="gallery-select"
+              />
             </label>
           </div>
 
@@ -553,16 +553,11 @@ watch(
           <label class="copy-format" title="复制时使用的格式">
             <span class="label">链接选项</span>
             <div class="select-wrapper">
-              <select v-model="copyFormat">
-                <option
-                  v-for="option in copyFormatOptions"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-              <ChevronDown class="select-icon" :size="16" />
+              <GlobalSelect
+                v-model="copyFormat"
+                :options="copyFormatOptions"
+                class="control"
+              />
             </div>
           </label>
           <button
@@ -912,6 +907,57 @@ watch(
   min-height: 42px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* override GlobalSelect in gallery view filter */
+.filter-field .gallery-select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.filter-field .gallery-select .select-trigger {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border) !important;
+  background: var(--surface-acrylic) !important;
+  color: var(--text-primary) !important;
+  font-size: 14px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+.filter-field .gallery-select .select-trigger .icon {
+  color: var(--text-secondary) !important;
+}
+
+/* 图床选择器：匹配右侧字段的完整样式（圆角、边框、高度），适配两种主题 */
+.filter-field.field-right.compact ::v-deep(.gallery-select .select-trigger) {
+  border-radius: 0 12px 12px 0 !important;
+  border-top-left-radius: 0 !important;
+  border-bottom-left-radius: 0 !important;
+  border: 1px solid var(--surface-border) !important;
+  border-left: none !important;
+  border-top: 1px solid var(--surface-border) !important;
+  border-right: 1px solid var(--surface-border) !important;
+  border-bottom: 1px solid var(--surface-border) !important;
+  min-height: 42px !important;
+  height: 42px !important;
+  box-sizing: border-box !important;
+  /* 内阴影高光效果，与其他输入框一致 */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  /* 保持与右侧 control 一致的过渡效果 */
+  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+
+/* 图床选择器聚焦/激活状态，匹配其他输入框 */
+.filter-field.field-right.compact
+  ::v-deep(.gallery-select.open .select-trigger),
+.filter-field.field-right.compact
+  ::v-deep(.gallery-select .select-trigger:focus-within) {
+  border-color: var(--accent) !important;
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent) !important;
 }
 
 .grid {
@@ -1445,79 +1491,23 @@ watch(
   box-shadow: none;
 }
 
-@media (max-width: 640px) {
-  .filters {
-    padding: 18px;
-  }
-
-  .pair {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
-
-  .action-row {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .action-row .primary,
-  .action-row .ghost,
-  .advanced-toggle {
-    width: 100%;
-    text-align: center;
-  }
-
-  .results-head {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .copy-format {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .copy-format .select-wrapper {
-    width: 100%;
-  }
-
-  .copy-format select {
-    width: 100%;
-    padding: 6px 34px 6px 12px;
-  }
-
-  .filter-field.field-left .control,
-  .filter-field.field-right .control,
-  .filter-field.field-left.wide .control,
-  .filter-field.field-right.compact .control {
-    border-radius: 12px;
-    border-left: 1px solid var(--surface-border);
-  }
-
-  .confirm-dialog {
-    padding: 24px 18px;
-    gap: 14px;
-  }
-
-  .confirm-dialog h3 {
-    font-size: 18px;
-  }
-
-  .confirm-actions {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .confirm-actions .ghost,
-  .confirm-actions .danger {
-    width: 100%;
-  }
+/* 覆盖图库界面中图床 GlobalSelect 样式，使其与外层 filter control 一致 */
+.gallery-select .select-trigger {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--surface-border) !important;
+  background: var(--surface-acrylic) !important;
+  color: var(--text-primary) !important;
+  font-size: 14px;
+  min-height: 42px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
 }
-</style>
+.gallery-select .select-trigger .icon {
+  color: var(--text-secondary) !important;
+}
 
-<!-- Global styles for teleported modals (ensure they are fixed to viewport and block interactions) -->
-<style>
+/* Global styles for teleported modals (ensure they are fixed to viewport and block interactions) */
 /* Ensure teleported overlays sit above everything and are centered in viewport */
 .preview-overlay,
 .confirm-overlay {
