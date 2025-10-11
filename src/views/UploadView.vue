@@ -13,6 +13,7 @@ import { useSettingsStore } from '../stores/settings';
 import type { LoadedPlugin } from '../plugins/registry';
 import type { PluginUploadResult } from '../types/imageHostPlugin';
 import { insertGalleryItem } from '../types/gallery';
+import { ClipboardCopy } from 'lucide-vue-next';
 
 type FormatKey = 'link' | 'html' | 'bbcode' | 'markdown';
 
@@ -770,59 +771,7 @@ async function uploadClipboard() {
             @click.stop="uploadClipboard"
             title="从剪贴板上传图片"
           >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              style="vertical-align: middle; margin-right: 8px"
-            >
-              <!-- Clipboard icon -->
-              <rect
-                x="7"
-                y="3"
-                width="10"
-                height="4"
-                rx="1"
-                fill="currentColor"
-                opacity="0.12"
-              />
-              <path
-                d="M9 3h6a1 1 0 0 1 1 1v1"
-                stroke="currentColor"
-                stroke-width="1.4"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-              <rect
-                x="6"
-                y="7"
-                width="12"
-                height="13"
-                rx="2"
-                stroke="currentColor"
-                stroke-width="1.4"
-                fill="none"
-              />
-              <rect
-                x="9"
-                y="1"
-                width="6"
-                height="2"
-                rx="0.5"
-                fill="currentColor"
-                opacity="0.12"
-                transform="translate(0 0)"
-              />
-              <path
-                d="M9 11h6"
-                stroke="currentColor"
-                stroke-width="1.4"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
+            <ClipboardCopy class="button-icon" :size="18" :stroke-width="1.6" />
             <span style="vertical-align: middle">{{
               uploading ? '上传中…' : '从剪贴板上传'
             }}</span>
@@ -1103,6 +1052,11 @@ async function uploadClipboard() {
 .actions button.muted:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.button-icon {
+  margin-right: 8px;
+  vertical-align: middle;
 }
 
 .progress-card {

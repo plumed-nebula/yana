@@ -3,6 +3,14 @@ import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useThemeStore } from '../stores/theme';
+import {
+  Moon,
+  SunMedium,
+  Minus,
+  Maximize2,
+  Minimize2,
+  X as CloseIcon,
+} from 'lucide-vue-next';
 
 const appWindow = getCurrentWindow();
 const themeStore = useThemeStore();
@@ -73,38 +81,8 @@ onBeforeUnmount(() => {
         :aria-label="isDarkTheme ? '切换为浅色模式' : '切换为深色模式'"
         @click="handleToggleTheme"
       >
-        <svg
-          v-if="isDarkTheme"
-          viewBox="0 0 24 24"
-          focusable="false"
-          aria-hidden="true"
-        >
-          <path
-            d="M12 4.5a7.5 7.5 0 1 0 7.5 7.5 5.5 5.5 0 0 1-7.5-7.5Z"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <svg v-else viewBox="0 0 24 24" focusable="false" aria-hidden="true">
-          <circle
-            cx="12"
-            cy="12"
-            r="5.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-          />
-          <path
-            d="M12 3v2.5m0 13V21m9-9h-2.5M5.5 12H3m16.45 6.45-1.77-1.77M7.32 7.32 5.55 5.55m0 12.9 1.77-1.77m10.36-10.36 1.77-1.77"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-          />
-        </svg>
+        <Moon v-if="isDarkTheme" class="icon" :size="18" :stroke-width="1.6" />
+        <SunMedium v-else class="icon" :size="18" :stroke-width="1.6" />
       </button>
       <button
         type="button"
@@ -112,9 +90,7 @@ onBeforeUnmount(() => {
         aria-label="最小化"
         @click="handleMinimize"
       >
-        <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-          <rect x="3" y="7.5" width="10" height="1" rx="0.5" />
-        </svg>
+        <Minus class="icon" :size="16" :stroke-width="2.2" />
       </button>
       <button
         type="button"
@@ -122,36 +98,13 @@ onBeforeUnmount(() => {
         :aria-label="isMaximized ? '还原窗口' : '最大化'"
         @click="handleToggleMaximize"
       >
-        <svg
+        <Maximize2
           v-if="!isMaximized"
-          viewBox="0 0 16 16"
-          focusable="false"
-          aria-hidden="true"
-        >
-          <rect x="3" y="3" width="10" height="10" rx="1.6" ry="1.6" />
-        </svg>
-        <svg v-else viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-          <rect
-            x="2"
-            y="2"
-            width="12"
-            height="12"
-            rx="1"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.4"
-          />
-          <rect
-            x="4"
-            y="4"
-            width="8"
-            height="8"
-            rx="0.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.4"
-          />
-        </svg>
+          class="icon"
+          :size="16"
+          :stroke-width="2"
+        />
+        <Minimize2 v-else class="icon" :size="16" :stroke-width="2" />
       </button>
       <button
         type="button"
@@ -159,9 +112,7 @@ onBeforeUnmount(() => {
         aria-label="关闭窗口"
         @click="handleClose"
       >
-        <svg viewBox="0 0 16 16" focusable="false" aria-hidden="true">
-          <path d="M4 4l8 8m0-8L4 12" />
-        </svg>
+        <CloseIcon class="icon" :size="16" :stroke-width="2.1" />
       </button>
     </div>
   </header>
@@ -237,17 +188,6 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-.action svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-
 .action:hover {
   background: var(--action-hover);
 }
@@ -257,9 +197,20 @@ onBeforeUnmount(() => {
   transform: translateY(1px);
 }
 
-.action.theme-toggle svg {
+.action :deep(svg) {
   width: 16px;
   height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.action.theme-toggle :deep(svg) {
+  width: 18px;
+  height: 18px;
 }
 
 .action.danger {

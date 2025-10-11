@@ -13,6 +13,7 @@ import {
   warn as logWarn,
 } from '@tauri-apps/plugin-log';
 import { useImageHostStore } from '../stores/imageHosts';
+import { ChevronDown } from 'lucide-vue-next';
 
 const keyword = ref('');
 const selectedHost = ref('');
@@ -30,7 +31,7 @@ const loading = ref(false);
 const hostLoading = ref(false);
 const errorMessage = ref('');
 const toast = ref<{ message: string; kind: 'success' | 'error' } | null>(null);
-const confirmTarget = ref<GalleryItem | null>(null);
+const confirmTarget = ref<any>(null);
 const confirmError = ref('');
 const deleteLoading = ref(false);
 const copyFormat = ref<'link' | 'html' | 'bbcode' | 'markdown'>('link');
@@ -44,6 +45,68 @@ const copyFormatOptions: Array<{
   { value: 'markdown', label: 'Markdown' },
   { value: 'bbcode', label: 'BBCode' },
 ];
+
+// 批量选择模式状态
+const batchMode = ref(false);
+// 存储被选中的 item.id，按选择顺序保存
+const selectedOrder = ref<number[]>([]);
+
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value;
+  if (!batchMode.value) {
+    // 退出批量模式时清空选择
+    selectedOrder.value = [];
+  }
+}
+
+function isSelected(id: number) {
+  return selectedOrder.value.indexOf(id) !== -1;
+}
+
+function selectedIndex(id: number) {
+  const idx = selectedOrder.value.indexOf(id);
+  return idx === -1 ? -1 : idx + 1; // 返回 1-based 序号
+}
+
+function toggleSelectItem(id: number) {
+  const idx = selectedOrder.value.indexOf(id);
+  if (idx === -1) {
+    selectedOrder.value.push(id);
+  } else {
+    // 取消选择：保留选择顺序的其余项
+    selectedOrder.value.splice(idx, 1);
+  }
+}
+
+function clearBatchSelection() {
+  selectedOrder.value = [];
+}
+
+async function exportLinksOfSelection() {
+  const selectedItems = selectedOrder.value
+    .map((id) => items.value.find((it) => it.id === id))
+    .filter(Boolean) as typeof items.value;
+  const text = selectedItems.map((it) => buildCopyText(it)).join('\n');
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.writeText)
+      throw new Error('不支持剪贴板');
+    await navigator.clipboard.writeText(text);
+    showToast(`已复制 ${selectedItems.length} 条链接到剪贴板`, 'success');
+  } catch (err) {
+    showToast('复制链接失败', 'error');
+    void logError(`[gallery] export links failed: ${String(err)}`);
+  }
+}
+
+async function deleteSelectedItems() {
+  // trigger batch delete confirmation instead of immediate delete
+  if (!selectedOrder.value.length) return;
+  // set confirmTarget as a batch request containing ids and a short message
+  confirmTarget.value = {
+    batchIds: selectedOrder.value.slice(),
+    message: `确定要删除选中的 ${selectedOrder.value.length} 张图片吗？`,
+  };
+}
 
 function extractFileName(item: GalleryItem): string {
   if (item.file_name) return item.file_name;
@@ -242,8 +305,55 @@ async function confirmDeletion() {
   deleteLoading.value = true;
   confirmError.value = '';
 
-  const target = confirmTarget.value;
+  // handle batch deletion
+  if (
+    confirmTarget.value.batchIds &&
+    Array.isArray(confirmTarget.value.batchIds)
+  ) {
+    const ids: number[] = confirmTarget.value.batchIds.slice();
+    let deleted = 0;
+    for (const id of ids) {
+      const target = items.value.find((it) => it.id === id);
+      if (!target) continue;
+      try {
+        const plugin = imageHostStore.getPluginById(target.host);
+        if (plugin && target.delete_marker) {
+          const res = await plugin.remove(
+            target.delete_marker,
+            imageHostStore.runtime
+          );
+          if (!res?.success) {
+            void logWarn(
+              `[gallery] batch plugin delete failed (id=${id}): ${res?.message}`
+            );
+          }
+        }
+      } catch (err) {
+        void logError(
+          `[gallery] batch plugin delete exception (id=${id}): ${String(err)}`
+        );
+      }
+      try {
+        await deleteGalleryItem(id);
+        items.value = items.value.filter((it) => it.id !== id);
+        deleted++;
+      } catch (err) {
+        void logError(
+          `[gallery] batch db delete failed (id=${id}): ${String(err)}`
+        );
+      }
+    }
+    showToast(`已删除 ${deleted} 张图片`, 'success');
+    // 清空选择并退出批量模式
+    selectedOrder.value = [];
+    batchMode.value = false;
+    closeConfirm();
+    deleteLoading.value = false;
+    return;
+  }
 
+  // single item deletion (existing flow)
+  const target = confirmTarget.value;
   const plugin = imageHostStore.getPluginById(target.host);
 
   if (!plugin) {
@@ -442,16 +552,27 @@ watch(
           </span>
           <label class="copy-format" title="复制时使用的格式">
             <span class="label">链接选项</span>
-            <select v-model="copyFormat">
-              <option
-                v-for="option in copyFormatOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}
-              </option>
-            </select>
+            <div class="select-wrapper">
+              <select v-model="copyFormat">
+                <option
+                  v-for="option in copyFormatOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+              <ChevronDown class="select-icon" :size="16" />
+            </div>
           </label>
+          <button
+            type="button"
+            class="ghost batch-toggle-btn"
+            :class="{ active: batchMode }"
+            @click="toggleBatchMode"
+          >
+            {{ batchMode ? '退出批量选择' : '批量选择' }}
+          </button>
         </header>
 
         <span v-if="errorMessage" class="error">{{ errorMessage }}</span>
@@ -465,14 +586,60 @@ watch(
         </div>
 
         <div v-else class="grid">
-          <GalleryItemCard
+          <div
             v-for="item in items"
             :key="item.id"
-            :item="item"
-            @preview="openPreview"
-            @copy="handleCopy"
-            @delete="requestDelete"
-          />
+            class="card-wrapper"
+            :class="{
+              'batch-active': batchMode,
+              selected: isSelected(item.id),
+            }"
+            @click.stop="batchMode ? toggleSelectItem(item.id) : null"
+          >
+            <GalleryItemCard
+              :item="item"
+              :showSelection="batchMode"
+              :selectedIndex="batchMode ? selectedIndex(item.id) : null"
+              @preview="openPreview"
+              @copy="handleCopy"
+              @delete="requestDelete"
+              @toggle-select="() => toggleSelectItem(item.id)"
+            />
+          </div>
+        </div>
+        <!-- 批量操作底部横条 -->
+        <div v-if="batchMode" class="batch-action-bar">
+          <div class="bar-content">
+            <div class="left">已选 {{ selectedOrder.length }} 张</div>
+            <div class="center">
+              <button
+                class="ghost"
+                @click="exportLinksOfSelection"
+                :disabled="!selectedOrder.length"
+              >
+                导出链接
+              </button>
+              <button
+                class="danger"
+                @click="deleteSelectedItems"
+                :disabled="!selectedOrder.length"
+              >
+                删除
+              </button>
+              <button
+                class="ghost"
+                @click="
+                  () => {
+                    clearBatchSelection();
+                    toggleBatchMode();
+                  }
+                "
+              >
+                取消
+              </button>
+            </div>
+            <div class="right"></div>
+          </div>
         </div>
       </section>
 
@@ -485,14 +652,23 @@ watch(
           >
             <div class="confirm-dialog">
               <h3>确认删除</h3>
-              <p class="message">
+              <p class="message" v-if="confirmTarget && confirmTarget.batchIds">
+                {{
+                  confirmTarget.message ||
+                  `确定要删除选中的 ${confirmTarget.batchIds.length} 张图片吗？`
+                }}
+              </p>
+              <p class="message" v-else>
                 确定要删除
                 <strong>{{
-                  confirmTarget.file_name || confirmTarget.url
+                  confirmTarget?.file_name || confirmTarget?.url
                 }}</strong>
                 吗？
               </p>
-              <p class="sub">
+              <p class="sub" v-if="confirmTarget && confirmTarget.batchIds">
+                将调用对应图床删除接口，并从图库中移除这些记录。
+              </p>
+              <p class="sub" v-else>
                 将调用
                 {{ confirmTarget.host }} 图床删除接口，并从图库移除此记录。
               </p>
@@ -546,6 +722,111 @@ watch(
 </template>
 
 <style scoped>
+/* 批量选择开关样式（应用于按钮） */
+.batch-toggle-btn {
+  /* 默认与页面 ghost 风格一致 */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--surface-acrylic);
+  color: var(--text-secondary);
+  border: 1px solid var(--surface-border);
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
+  font-weight: 700;
+}
+.batch-toggle-btn:hover {
+  transform: translateY(-1px);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+.batch-toggle-btn.active {
+  /* active 时借用 primary 的高亮渐变与阴影 */
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 65%, #b794ff 35%)
+  );
+  color: #fff;
+  box-shadow: 0 12px 30px
+    color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.38));
+  border-color: transparent;
+}
+
+/* 卡片遮罩样式（覆盖整个卡片） */
+.card-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.25));
+  opacity: 0;
+  transition: opacity 0.12s ease, backdrop-filter 0.12s ease;
+  pointer-events: none;
+}
+.card-wrapper.selected .card-overlay {
+  opacity: 1;
+  backdrop-filter: blur(4px) saturate(1.05);
+}
+
+.selection-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-weight: 600;
+  font-size: 13px;
+  box-shadow: 0 6px 18px rgba(2, 6, 23, 0.6);
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.selection-badge.small {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  top: 8px;
+  left: 8px;
+}
+
+/* 底部动作栏：更贴近底部并微调样式 */
+.batch-action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 12px; /* 原来可能更大，改为 12px 更贴近底部 */
+  display: flex;
+  justify-content: center;
+  pointer-events: none; /* 使外层不捕获事件，内层按钮仍可交互 */
+  z-index: 60;
+}
+.batch-action-bar .bar-content {
+  pointer-events: auto;
+  width: min(1100px, calc(100% - 48px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: rgba(20, 26, 34, 0.56);
+  backdrop-filter: blur(8px) saturate(1.08);
+  box-shadow: 0 6px 30px rgba(2, 6, 23, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+.batch-action-bar .bar-content .count {
+  color: var(--text-secondary);
+  margin-right: auto;
+}
+.batch-action-bar .bar-content .btn {
+  margin-left: 6px;
+}
+
 .gallery-view {
   width: 100%;
   display: flex;
@@ -631,6 +912,129 @@ watch(
   min-height: 42px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.card-wrapper {
+  position: relative;
+  cursor: pointer;
+}
+.card-wrapper .selection-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+}
+.card-wrapper .selection-badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8);
+}
+.card-wrapper.selected {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  transform: translateY(-4px);
+  border-radius: 12px;
+  outline: 0;
+}
+
+/* 底部批量操作条：居中圆角半透明矩形，主题自适应 */
+.batch-action-bar {
+  position: sticky;
+  bottom: 18px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  pointer-events: none; /* 外层不接收点击，内部 .bar-content 接收 */
+  z-index: 30;
+}
+.batch-action-bar .bar-content {
+  pointer-events: auto;
+  max-width: 1100px;
+  width: calc(100% - 40px);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: color-mix(in srgb, var(--surface-panel) 88%, transparent);
+  border-radius: 14px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--surface-border) 72%, transparent);
+  box-shadow: 0 8px 20px rgba(6, 12, 24, 0.16);
+  backdrop-filter: blur(8px) saturate(1.05);
+  color: var(--text-primary);
+}
+
+/* 按钮统一样式（底栏） */
+.batch-action-bar button {
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.12s ease, opacity 0.12s ease;
+}
+.batch-action-bar button:hover {
+  transform: translateY(-2px);
+}
+
+.batch-action-bar .ghost {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--surface-border) 72%, transparent);
+  color: var(--text-primary);
+}
+.batch-action-bar .ghost:active {
+  opacity: 0.9;
+}
+
+.batch-action-bar .danger {
+  background: linear-gradient(
+    180deg,
+    var(--danger),
+    color-mix(in srgb, var(--danger) 90%, black 10%)
+  );
+  color: #fff;
+  border-color: transparent;
+}
+.batch-action-bar .danger:active {
+  transform: translateY(0);
+  opacity: 0.95;
+}
+
+/* 徽章颜色适配主题 */
+.card-wrapper .selection-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  background: var(--accent);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+}
+.card-wrapper .selection-badge .dot {
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .filter-field .control:focus {
@@ -777,17 +1181,30 @@ watch(
   white-space: nowrap;
 }
 
+.copy-format .select-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .copy-format select {
   appearance: none;
-  padding: 6px 28px 6px 12px;
+  padding: 6px 34px 6px 12px;
   border-radius: 10px;
   border: 1px solid var(--surface-border);
-  background: var(--surface-acrylic)
-    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"><path fill="%23aab6d3" d="M7 10l5 5 5-5z"/></svg>')
-    no-repeat right 10px center;
+  background: var(--surface-acrylic);
   color: var(--text-primary);
   font-size: 13px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.copy-format .select-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
 }
 
 .copy-format select:focus {
@@ -1061,9 +1478,13 @@ watch(
     justify-content: space-between;
   }
 
+  .copy-format .select-wrapper {
+    width: 100%;
+  }
+
   .copy-format select {
     width: 100%;
-    background-position: right 12px center;
+    padding: 6px 34px 6px 12px;
   }
 
   .filter-field.field-left .control,

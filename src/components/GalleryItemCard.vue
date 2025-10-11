@@ -5,9 +5,11 @@ import { Link2, Trash2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   item: GalleryItem;
+  showSelection?: boolean;
+  selectedIndex?: number | null;
 }>();
 
-const { item } = toRefs(props);
+const { item, showSelection, selectedIndex } = toRefs(props as any);
 
 const displayName = computed(() => item.value.file_name ?? item.value.url);
 
@@ -25,9 +27,22 @@ const emit = defineEmits<{
   (e: 'preview', item: GalleryItem): void;
   (e: 'copy', item: GalleryItem): void;
   (e: 'delete', item: GalleryItem): void;
+  (e: 'toggle-select'): void;
 }>();
 
-function handlePreview() {
+function handlePreview(e?: Event) {
+  try {
+    // only inspect for badge when this is a MouseEvent (keyboard events shouldn't check)
+    if (e instanceof MouseEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest('.select-badge')) {
+        // click originated from the badge area — ignore preview here
+        return;
+      }
+    }
+  } catch (err) {
+    // ignore errors and continue
+  }
   emit('preview', item.value);
 }
 
@@ -37,6 +52,11 @@ function handleCopy() {
 
 function handleDelete() {
   emit('delete', item.value);
+}
+
+function handleBadgeClick() {
+  // emit toggle-select so parent can toggle selection while we stop propagation in template
+  emit('toggle-select');
 }
 </script>
 
@@ -52,6 +72,16 @@ function handleDelete() {
   >
     <div class="image-wrapper">
       <img :src="item.url" :alt="displayName" loading="lazy" />
+      <!-- selection badge (shown when parent enables batch selection) -->
+      <div
+        v-if="showSelection && selectedIndex !== null"
+        class="select-badge"
+        :class="{ dot: selectedIndex === -1 }"
+        @click.stop="handleBadgeClick"
+      >
+        <span v-if="selectedIndex > 0">{{ selectedIndex }}</span>
+        <span v-else class="dot-inner"></span>
+      </div>
       <button
         type="button"
         class="icon-btn danger delete-btn"
@@ -228,5 +258,32 @@ function handleDelete() {
 
 .icon-btn.danger:hover {
   background: rgba(244, 63, 94, 0.42);
+}
+
+/* Selection badge for batch mode */
+.select-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+  background: var(--accent);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.45);
+}
+.select-badge.dot {
+  background: rgba(0, 0, 0, 0.45);
+}
+.select-badge .dot-inner {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
 }
 </style>
