@@ -85,7 +85,7 @@ export async function loadPlugin(entry: PluginEntry): Promise<LoadedPlugin> {
           id: 's3',
           sourceUrl: '',
           name: 'S3 上传',
-          author: '',
+          author: '官方内置',
           version: '1.0.0',
           description: '使用后端 S3 接口上传',
           supportedFileTypes: [
