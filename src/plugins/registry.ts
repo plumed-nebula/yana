@@ -44,6 +44,208 @@ function resolvePluginUrl(entry: PluginEntry): string {
 export async function loadPlugin(entry: PluginEntry): Promise<LoadedPlugin> {
   if (!pluginCache.has(entry.id)) {
     const promise = (async () => {
+      // 内置 S3 插件，调用后端 S3 命令，前端不暴露签名逻辑
+      if (entry.id === 's3') {
+        interface S3UploadBackendResult {
+          url: string;
+          deleteId: string;
+          metadata?: Record<string, unknown>;
+        }
+
+        interface S3DeleteBackendResult {
+          success: boolean;
+          message?: string;
+        }
+
+        const coerceString = (value: unknown): string =>
+          typeof value === 'string'
+            ? value
+            : value != null
+            ? String(value)
+            : '';
+
+        const asOptionalString = (value: unknown): string | null => {
+          if (typeof value !== 'string') return null;
+          const trimmed = value.trim();
+          return trimmed.length > 0 ? trimmed : null;
+        };
+
+        const asBoolean = (value: unknown, fallback = false): boolean => {
+          if (typeof value === 'boolean') return value;
+          if (typeof value === 'string') {
+            const lowered = value.trim().toLowerCase();
+            if (lowered === 'true') return true;
+            if (lowered === 'false') return false;
+          }
+          if (typeof value === 'number') return value !== 0;
+          return fallback;
+        };
+
+        const stub: LoadedPlugin = {
+          id: 's3',
+          sourceUrl: '',
+          name: 'S3 上传',
+          author: '',
+          version: '1.0.0',
+          description: '使用后端 S3 接口上传',
+          supportedFileTypes: [
+            {
+              description: '常见图片类型',
+              mimeTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+            },
+          ],
+          parameters: [
+            { key: 'bucket', label: 'S3 Bucket', type: 'text', required: true },
+            {
+              key: 'region',
+              label: '区域 (region)',
+              type: 'text',
+              required: true,
+            },
+            {
+              key: 'accessKeyId',
+              label: 'Access Key ID',
+              type: 'text',
+              required: true,
+            },
+            {
+              key: 'secretAccessKey',
+              label: 'Secret Access Key',
+              type: 'password',
+              required: true,
+            },
+            {
+              key: 'endpoint',
+              label: '自定义 Endpoint',
+              type: 'text',
+              description:
+                'S3 兼容服务的根地址，例如 https://s3.example.com，留空则使用官方默认',
+            },
+            {
+              key: 'forcePathStyle',
+              label: '强制 Path-Style',
+              type: 'boolean',
+              defaultValue: false,
+              description:
+                '兼容部分只支持 Path Style 的对象存储 (MinIO、部分兼容服务)',
+            },
+            {
+              key: 'objectPrefix',
+              label: '对象前缀 (可选)',
+              type: 'text',
+              description:
+                '可选，前缀会追加在自动生成的目录前，例如 uploads 或 projectA',
+            },
+            {
+              key: 'acl',
+              label: 'ACL 权限 (可选)',
+              type: 'select',
+              defaultValue: 'private',
+              options: [
+                { label: 'private', value: 'private' },
+                { label: 'public-read', value: 'public-read' },
+                { label: 'public-read-write', value: 'public-read-write' },
+                { label: 'authenticated-read', value: 'authenticated-read' },
+                { label: 'aws-exec-read', value: 'aws-exec-read' },
+                { label: 'bucket-owner-read', value: 'bucket-owner-read' },
+                {
+                  label: 'bucket-owner-full-control',
+                  value: 'bucket-owner-full-control',
+                },
+                { label: '不指定 (沿用存储桶默认)', value: '' },
+              ],
+            },
+            {
+              key: 'publicBaseUrl',
+              label: '对外访问根地址 (可选)',
+              type: 'text',
+              description:
+                '例如 https://cdn.example.com，返回链接会拼接该前缀，留空则使用 S3 默认域名',
+            },
+          ],
+          upload: async (filePath, originalFileName, params, _context) => {
+            // 调用后端命令执行 S3 上传
+            const requireString = (value: unknown, label: string): string => {
+              const coerced = coerceString(value).trim();
+              if (!coerced) {
+                throw new Error(`${label} 不能为空`);
+              }
+              return coerced;
+            };
+
+            const bucket = requireString(params.bucket, 'S3 Bucket');
+            const region = requireString(params.region, '区域 (region)');
+            const accessKeyId = requireString(
+              params.accessKeyId,
+              'Access Key ID'
+            );
+            const secretAccessKey = requireString(
+              params.secretAccessKey,
+              'Secret Access Key'
+            );
+
+            const result = await invoke<S3UploadBackendResult>('s3_upload', {
+              filePath,
+              originalFileName,
+              bucket,
+              region,
+              accessKeyId,
+              secretAccessKey,
+              endpoint: asOptionalString(params.endpoint),
+              forcePathStyle: asBoolean(params.forcePathStyle, false),
+              objectPrefix: asOptionalString(params.objectPrefix),
+              acl: asOptionalString(params.acl),
+              publicBaseUrl: asOptionalString(params.publicBaseUrl),
+            });
+            return {
+              url: result.url,
+              deleteId: result.deleteId,
+              metadata: result.metadata,
+            };
+          },
+          remove: async (deleteId, _context) => {
+            if (!deleteId) {
+              return {
+                success: false,
+                message: '缺少 deleteId，无法执行 S3 删除。',
+              };
+            }
+
+            const settings = await invoke<Record<string, unknown> | null>(
+              'load_image_host_settings',
+              { pluginId: 's3' }
+            ).catch(() => null);
+
+            const accessKeyId =
+              asOptionalString(settings?.['accessKeyId']) ?? '';
+            const secretAccessKey =
+              asOptionalString(settings?.['secretAccessKey']) ?? '';
+
+            if (!accessKeyId || !secretAccessKey) {
+              return {
+                success: false,
+                message:
+                  '请先在 S3 插件设置中填写 Access Key 和 Secret Access Key。',
+              };
+            }
+
+            const result = await invoke<S3DeleteBackendResult>('s3_delete', {
+              deleteId,
+              accessKeyId,
+              secretAccessKey,
+            }).catch((error: unknown) => ({
+              success: false,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : String(error ?? '未知错误'),
+            }));
+
+            return result;
+          },
+        };
+        return stub;
+      }
       const url = resolvePluginUrl(entry);
       const mod = await import(/* @vite-ignore */ url);
       const pluginModule: ImageHostPlugin | undefined = (mod.default ??

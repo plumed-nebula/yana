@@ -125,10 +125,19 @@ fn discover_plugins(app: &tauri::AppHandle) -> Result<Vec<PluginEntryPayload>, S
         }
     }
 
-    let result: Vec<PluginEntryPayload> = collected
+    let mut result: Vec<PluginEntryPayload> = collected
         .into_iter()
         .map(|(id, script)| PluginEntryPayload { id, script })
         .collect();
+
+    if !result.iter().any(|entry| entry.id == "s3") {
+        result.push(PluginEntryPayload {
+            id: "s3".to_string(),
+            script: "__internal__/s3".to_string(),
+        });
+    }
+
+    result.sort_by(|a, b| a.id.cmp(&b.id));
 
     Ok(result)
 }

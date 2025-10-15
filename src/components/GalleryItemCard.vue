@@ -58,6 +58,12 @@ function handleBadgeClick() {
   // emit toggle-select so parent can toggle selection while we stop propagation in template
   emit('toggle-select');
 }
+
+const imageSrc = computed(() => {
+  const raw = item.value.url;
+  // correct double-colon protocol typo
+  return raw.replace('https:://', 'https://').replace('http:://', 'http://');
+});
 </script>
 
 <template>
@@ -71,7 +77,7 @@ function handleBadgeClick() {
     @keydown.space.prevent="handlePreview"
   >
     <div class="image-wrapper">
-      <img :src="item.url" :alt="displayName" loading="lazy" />
+      <img :src="imageSrc" :alt="displayName" loading="lazy" />
       <!-- selection badge (shown when parent enables batch selection) -->
       <div
         v-if="showSelection && selectedIndex !== null"

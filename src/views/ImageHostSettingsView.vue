@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useImageHostStore } from '../stores/imageHosts';
+import GlobalSelect from '../components/GlobalSelect.vue';
 
 const props = defineProps<{
   pluginId: string | null;
@@ -164,7 +165,12 @@ function handleManualSave() {
                     <GlobalSelect
                       :id="`param-${descriptor.key}`"
                       v-model="activeValues[descriptor.key]"
-                      :options="descriptor.options"
+                      :options="
+                        (descriptor.options || []).map((opt) => ({
+                          label: opt.label,
+                          value: String(opt.value),
+                        }))
+                      "
                       :placeholder="
                         !descriptor.required ? '-- 请选择 --' : undefined
                       "

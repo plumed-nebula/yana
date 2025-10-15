@@ -2,6 +2,7 @@
 mod gallery;
 mod image_hosts;
 mod process;
+mod s3;
 mod settings;
 mod upload;
 
@@ -62,6 +63,8 @@ pub fn run() {
             image_hosts::load_image_host_settings,
             image_hosts::save_image_host_settings,
             upload::upload_image,
+            s3::s3_upload,
+            s3::s3_delete,
             gallery::gallery_insert_item,
             gallery::gallery_delete_item,
             gallery::gallery_query_items,
