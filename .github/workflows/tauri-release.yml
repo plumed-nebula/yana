@@ -3,7 +3,7 @@ name: Build and Release (Tauri)
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build-windows:
@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -29,13 +29,11 @@ jobs:
         run: |
           npm ci
 
-      - name: Build frontend
+      - name: Install Windows bundler tools (NSIS, WiX)
+        if: runner.os == 'Windows'
         run: |
-          npm run build
-
-      - name: Install tauri prerequisites
-        run: |
-          choco install -y nodejs-lts
+          choco install -y nsis
+          choco install -y wixtoolset
 
       - name: Build Tauri bundle
         env:
