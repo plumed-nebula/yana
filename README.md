@@ -35,6 +35,14 @@ npm run tauri build
 
 注意：在 Windows 上用 PowerShell 执行上述命令。
 
+## 系统支持
+
+- Windows 10 及以上（已测试 Windows 11，原生支持）
+
+其它平台未经测试，macOS 未作标题栏适配，Linux 未进行窗口配置优化。
+
+移动平台暂不支持。
+
 ## 插件系统（Image Host Plugin）
 
 核心思路：插件是符合约定的 ESM 模块（`.js` / `.mjs`），导出一个包含 `upload` 与 `remove` 方法的对象（可用 `export default { ... }` 或 `module.exports` 风格）。应用通过后端命令 `list_image_host_plugins` 列出可用插件。
