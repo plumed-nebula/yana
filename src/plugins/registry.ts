@@ -40,6 +40,18 @@ export async function getPluginEntries(force = false): Promise<PluginEntry[]> {
  */
 function resolvePluginUrl(entry: PluginEntry): string {
   if (import.meta.env.DEV) {
+    // If the script looks like an absolute filesystem path (Windows drive letter or leading '/'),
+    // use convertFileSrc so that the dev webview can load it via the tauri asset handler.
+    const looksLikeAbsolutePath = /(^[A-Za-z]:\\)|(^\\\\\\?\\)|(^\/)/.test(
+      entry.script
+    );
+    if (looksLikeAbsolutePath) {
+      try {
+        return convertFileSrc(entry.script);
+      } catch (e) {
+        // fallback to dev server URL if convertFileSrc fails for some reason
+      }
+    }
     const base = window.location.origin;
     const normalized = entry.script.startsWith('/')
       ? entry.script

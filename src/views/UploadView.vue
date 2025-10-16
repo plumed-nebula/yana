@@ -755,7 +755,7 @@ async function uploadClipboard() {
             <span class="drop-sub" v-if="activePlugin">
               当前：{{ activePlugin.name }}
             </span>
-            <span class="drop-sub"> 支持批量上传，格式选项见下方 </span>
+            <span class="drop-sub"> 点击以直接选择文件，支持批量上传 </span>
           </div>
         </div>
 

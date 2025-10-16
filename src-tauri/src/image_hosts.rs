@@ -58,6 +58,12 @@ fn candidate_plugin_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
         dirs.push(path);
     }
 
+    // User-added plugins in the user's app config directory
+    if let Ok(config_dir) = app.path().app_config_dir() {
+        let user_plugin_dir = config_dir.join("plugins");
+        dirs.push(user_plugin_dir);
+    }
+
     // This is for development, to load plugins directly from the source directory
     #[cfg(debug_assertions)]
     {
@@ -243,7 +249,7 @@ pub fn add_image_host_plugin(
 ) -> Result<PluginEntryPayload, String> {
     use std::fs;
     use std::path::PathBuf;
-    use tauri::path::BaseDirectory;
+    // use tauri::path::BaseDirectory;
 
     // 验证源文件存在
     let src_path = PathBuf::from(&source);
@@ -258,21 +264,23 @@ pub fn add_image_host_plugin(
     if !(file_name.ends_with(".js") || file_name.ends_with(".mjs")) {
         return Err("仅支持 .js 或 .mjs 文件".into());
     }
-    // 获取资源插件目录
-    let plugin_dir = app
+    // 获取用户插件目录
+    let config_dir = app
         .path()
-        .resolve("plugins", BaseDirectory::Resource)
-        .map_err(|e| format!("获取插件目录失败: {e}"))?;
-    fs::create_dir_all(&plugin_dir).map_err(|e| format!("创建插件目录失败: {}", e))?;
+        .app_config_dir()
+        .map_err(|e| format!("获取用户配置目录失败: {e}"))?;
+    let plugin_dir = config_dir.join("plugins");
+    fs::create_dir_all(&plugin_dir).map_err(|e| format!("创建用户插件目录失败: {e}"))?;
     // 复制文件
     let dest_path = plugin_dir.join(file_name);
-    fs::copy(&src_path, &dest_path).map_err(|e| format!("复制插件文件失败: {}", e))?;
+    fs::copy(&src_path, &dest_path).map_err(|e| format!("复制插件文件失败: {e}"))?;
     // 构建返回值
     let id = src_path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or(file_name)
         .to_string();
-    let script = format!("plugins/{}", file_name);
+    let script = dest_path.to_string_lossy().to_string();
+
     Ok(PluginEntryPayload { id, script })
 }

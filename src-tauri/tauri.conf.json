@@ -27,7 +27,9 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$RESOURCE/**"
+          "$RESOURCE/**",
+          "$APP_CONFIG/**",
+          "**/plugins/**"
         ]
       }
     }

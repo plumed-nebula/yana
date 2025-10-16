@@ -182,7 +182,7 @@ async function handleTest() {
   <div class="wrapper">
     <div class="card">
       <header>
-        <h1>图片压缩实验室</h1>
+        <h1>图片压缩</h1>
         <p>根据当前设置快速试跑一次压缩流程，体验效果并确认输出。</p>
       </header>
 
