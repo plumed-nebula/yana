@@ -49,10 +49,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: List bundle output (debug)
+        run: |
+          echo "Listing src-tauri/target/release/bundle (if exists)"
+          if [ -d "src-tauri/target/release/bundle" ]; then
+            ls -la src-tauri/target/release/bundle || true
+            find src-tauri/target/release/bundle -maxdepth 3 -type f -print || true
+          else
+            echo "bundle directory not found"
+          fi
+
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            yana/src-tauri/target/release/bundle/**/*
+            src-tauri/target/release/bundle/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
