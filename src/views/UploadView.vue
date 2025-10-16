@@ -12,6 +12,7 @@ import { listen } from '@tauri-apps/api/event';
 import { useImageHostStore } from '../stores/imageHosts';
 import { useSettingsStore } from '../stores/settings';
 import type { LoadedPlugin } from '../plugins/registry';
+import { arePluginEntriesLoaded } from '../plugins/registry';
 import type { PluginUploadResult } from '../types/imageHostPlugin';
 import { insertGalleryItem } from '../types/gallery';
 import { ClipboardCopy } from 'lucide-vue-next';
@@ -227,6 +228,7 @@ watch(
 let unlistenDrop: (() => void) | null = null;
 let unlistenEnter: (() => void) | null = null;
 let unlistenLeave: (() => void) | null = null;
+let unlistenHostsReady: (() => void) | null = null;
 
 onMounted(async () => {
   // Load persisted plugin selection if available
@@ -276,6 +278,97 @@ onMounted(async () => {
     await logInfo('[upload] 文件离开拖放区域');
     dragActive.value = false;
   });
+
+  // 如果插件列表在页面加载后才完成，监听 registry 发出的 ready 事件并在收到时重新应用选择
+  try {
+    const handler = () => {
+      try {
+        logDebug?.(
+          '[upload] 收到 imageHosts:ready 事件，尝试从 localStorage 应用已保存选择'
+        );
+
+        // 首选从 localStorage 读取保存的选择，不再通过 updateSelected 写回（避免重复写入/覆盖）
+        let saved: string | null = null;
+        try {
+          saved = localStorage.getItem(LOCALSTORAGE_KEY_PLUGIN);
+        } catch (e) {
+          /* ignore */
+        }
+
+        if (saved) {
+          const found = pluginList.value.some((p) => p.id === saved);
+          if (found) {
+            try {
+              logDebug?.('[upload] 从 localStorage 应用已保存图床: ' + saved);
+            } catch (e) {}
+            // 应用但不再次持久化（已来自 localStorage）
+            localPluginId.value = saved;
+            props.onSelectPlugin?.({ id: saved, navigate: false });
+            return;
+          } else {
+            try {
+              logDebug?.('[upload] 本地保存的图床未在可用插件中找到: ' + saved);
+            } catch (e) {}
+          }
+        }
+
+        // 若无法从 localStorage 恢复（无保存或不可用），再尝试使用当前 localPluginId
+        if (localPluginId.value) {
+          const exists = pluginList.value.some(
+            (p) => p.id === localPluginId.value
+          );
+          if (exists) {
+            try {
+              logDebug?.(
+                '[upload] 使用当前内存中的选中值: ' + localPluginId.value
+              );
+            } catch (e) {}
+            props.onSelectPlugin?.({
+              id: localPluginId.value,
+              navigate: false,
+            });
+            return;
+          }
+        }
+
+        // 最后回退：选择第一个并持久化（保留原有行为）
+        if (pluginList.value.length) {
+          const firstId = pluginList.value[0]!.id;
+          try {
+            logDebug?.('[upload] 回退到首个可用图床并持久化: ' + firstId);
+          } catch (e) {}
+          updateSelected(firstId);
+        }
+      } catch (e) {
+        /* ignore */
+      }
+    };
+    window.addEventListener('imageHosts:ready', handler);
+    unlistenHostsReady = () =>
+      window.removeEventListener('imageHosts:ready', handler);
+    try {
+      await logDebug?.('[upload] 添加 imageHosts:ready 事件监听器');
+    } catch (e) {
+      /* ignore */
+    }
+    // If entries were already loaded before we registered listener, run handler immediately
+    try {
+      if (arePluginEntriesLoaded()) {
+        try {
+          logDebug?.(
+            '[upload] 插件条目已加载（事件可能已派发），立即执行一次重应用路径'
+          );
+        } catch (e) {
+          /* ignore */
+        }
+        handler();
+      }
+    } catch (e) {
+      /* ignore */
+    }
+  } catch (e) {
+    /* ignore */
+  }
 });
 
 onUnmounted(() => {
@@ -290,6 +383,15 @@ onUnmounted(() => {
   if (unlistenLeave) {
     unlistenLeave();
     unlistenLeave = null;
+  }
+  if (unlistenHostsReady) {
+    unlistenHostsReady();
+    unlistenHostsReady = null;
+    try {
+      logDebug?.('[upload] 移除 imageHosts:ready 事件监听器');
+    } catch (e) {
+      /* ignore */
+    }
   }
 });
 

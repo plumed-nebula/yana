@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { useThemeStore } from '../stores/theme';
 import {
@@ -38,7 +39,12 @@ async function handleToggleMaximize() {
 }
 
 async function handleClose() {
-  // await logInfo('[titlebar] close clicked');
+  // attempt to clean app temp dir before closing
+  try {
+    await invoke('clean_app_temp_dir');
+  } catch (e) {
+    // ignore cleanup errors, optionally could log
+  }
   await appWindow.close();
 }
 

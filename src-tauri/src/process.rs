@@ -35,6 +35,42 @@ use serde::{Deserialize, Serialize};
 use tempfile::Builder as TempFileBuilder;
 use webp::{Encoder as WebpEncoder, PixelLayout}; // adjustable-quality webp
 
+// Helper: application-specific temp directory inside system temp
+fn app_temp_dir() -> Result<PathBuf, String> {
+    let mut dir = std::env::temp_dir();
+    // prefer identifier from tauri.conf.json (compile-time include) and fallback to cargo package name
+    // use fixed app identifier to avoid parsing config at compile time
+    let identifier = "com.yana.dev".to_string();
+    dir.push(identifier);
+    Ok(dir)
+}
+
+fn ensure_app_temp_dir() -> Result<PathBuf, String> {
+    let dir = app_temp_dir()?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("create app temp dir {}: {}", dir.display(), e))?;
+    Ok(dir)
+}
+
+fn cleanup_app_temp_dir_internal() -> Result<(), String> {
+    let dir = app_temp_dir()?;
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)
+            .map_err(|e| format!("remove app temp dir {}: {}", dir.display(), e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clean_app_temp_dir() -> Result<(), String> {
+    info!("clean_app_temp_dir start");
+    cleanup_app_temp_dir_internal()?;
+    // recreate empty dir so subsequent tempfile_in calls succeed
+    ensure_app_temp_dir()?;
+    info!("clean_app_temp_dir done");
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(non_camel_case_types)]
@@ -314,12 +350,13 @@ fn process_one(
     let bytes = read_all_bytes(path)?;
     let kind = detect_format_and_kind(&bytes)?;
 
-    // 在系统临时目录创建输出文件（实际路径在 keep() 之后可被持久化）
+    // 在应用专属临时目录创建输出文件（实际路径在 keep() 之后可被持久化）
+    let tmp_dir = ensure_app_temp_dir()?;
     let mut tmp = TempFileBuilder::new()
         .prefix("yana_")
         .suffix("")
-        .tempfile()
-        .map_err(|e| format!("tempfile: {}", e))?;
+        .tempfile_in(&tmp_dir)
+        .map_err(|e| format!("tempfile_in: {}", e))?;
 
     match (kind, mode) {
         (DetectedKind::Static(fmt), Mode::original_format) => {
@@ -474,12 +511,13 @@ fn process_data(
     // 判定格式/动图属性
     let kind = detect_format_and_kind(&data)?;
 
-    // 在系统临时目录创建输出文件（实际路径在 keep() 之后可被持久化）
+    // 在应用专属临时目录创建输出文件（实际路径在 keep() 之后可被持久化）
+    let tmp_dir = ensure_app_temp_dir()?;
     let mut tmp = TempFileBuilder::new()
         .prefix("yana_clipboard_")
         .suffix("")
-        .tempfile()
-        .map_err(|e| format!("tempfile: {}", e))?;
+        .tempfile_in(&tmp_dir)
+        .map_err(|e| format!("tempfile_in: {}", e))?;
 
     match (kind, mode) {
         (DetectedKind::Static(fmt), Mode::original_format) => {
@@ -586,12 +624,13 @@ pub async fn compress_image_data(
 pub async fn save_image_data(data: Vec<u8>) -> Result<String, String> {
     info!("save_image_data start: data_len={}", data.len());
 
-    // 在系统临时目录创建输出文件
+    // 在应用专属临时目录创建输出文件
+    let tmp_dir = ensure_app_temp_dir()?;
     let mut tmp = TempFileBuilder::new()
         .prefix("yana_clipboard_raw_")
         .suffix("")
-        .tempfile()
-        .map_err(|e| format!("tempfile: {}", e))?;
+        .tempfile_in(&tmp_dir)
+        .map_err(|e| format!("tempfile_in: {}", e))?;
 
     // 直接写入原始数据
     tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;

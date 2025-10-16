@@ -1,6 +1,6 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import type { ImageHostPlugin } from '../types/imageHostPlugin';
-import { error } from '@tauri-apps/plugin-log';
+import { error, debug } from '@tauri-apps/plugin-log';
 
 export interface PluginEntry {
   /** 插件唯一标识，用于存储和导航 */
@@ -18,6 +18,10 @@ export interface LoadedPlugin extends ImageHostPlugin {
 
 const pluginCache = new Map<string, Promise<LoadedPlugin>>();
 let entriesPromise: Promise<PluginEntry[]> | null = null;
+// cache last loaded entries so callers can check readiness even if the event was
+// dispatched before they registered a listener.
+let lastEntries: PluginEntry[] | null = null;
+let entriesLoaded = false;
 
 async function queryPluginEntries(): Promise<PluginEntry[]> {
   const payload = await invoke<PluginEntry[]>('list_image_host_plugins');
@@ -25,13 +29,59 @@ async function queryPluginEntries(): Promise<PluginEntry[]> {
 }
 
 export async function getPluginEntries(force = false): Promise<PluginEntry[]> {
+  try {
+    debug('[registry] 开始获取插件条目');
+  } catch (e) {
+    /* ignore */
+  }
   if (force || !entriesPromise) {
-    entriesPromise = queryPluginEntries().catch((err) => {
-      entriesPromise = null;
-      throw err;
-    });
+    entriesLoaded = false;
+    entriesPromise = queryPluginEntries()
+      .then((entries) => {
+        try {
+          debug('[registry] 插件条目加载完成，派发 imageHosts:ready 事件');
+        } catch (e) {
+          /* ignore */
+        }
+        // cache entries and mark loaded before dispatching event
+        lastEntries = entries;
+        entriesLoaded = true;
+        // notify listeners that plugin entries have been loaded
+        try {
+          window.dispatchEvent(new CustomEvent('imageHosts:ready'));
+        } catch (e) {
+          /* ignore */
+        }
+        return entries;
+      })
+      .catch((err) => {
+        try {
+          debug('[registry] 获取插件条目失败: ' + String(err));
+        } catch (e) {
+          /* ignore */
+        }
+        entriesPromise = null;
+        entriesLoaded = true; // mark as loaded even on failure to avoid blocking callers
+        lastEntries = null;
+        throw err;
+      });
   }
   return entriesPromise;
+}
+
+/**
+ * 是否已经完成插件条目的初次加载（成功或失败）。
+ * 供组件在注册事件监听后立即查询，处理“事件先发后听”的情况。
+ */
+export function arePluginEntriesLoaded(): boolean {
+  return entriesLoaded;
+}
+
+/**
+ * 返回最后一次成功加载的插件条目，若无则返回 null。
+ */
+export function getLoadedPluginEntries(): PluginEntry[] | null {
+  return lastEntries;
 }
 
 /**

@@ -56,6 +56,7 @@ pub fn run() {
             process::compress_image_data,
             process::save_image_data,
             process::save_files,
+            process::clean_app_temp_dir,
             settings::load_settings,
             settings::save_settings,
             settings::open_log_dir,
