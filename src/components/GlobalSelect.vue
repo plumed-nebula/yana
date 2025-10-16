@@ -92,9 +92,9 @@ const isDark = computed(() => themeStore.isDark.value);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border: 1px solid var(--surface-border);
-  border-radius: 4px;
+  border-radius: 12px;
   background: var(--surface);
   color: var(--text-primary);
 }
@@ -111,11 +111,11 @@ const isDark = computed(() => themeStore.isDark.value);
 .options {
   position: absolute;
   width: 100%;
-  max-height: 200px;
+  max-height: 220px;
   overflow-y: auto;
-  margin-top: 4px;
+  margin-top: 6px;
   border: 1px solid var(--surface-border);
-  border-radius: 4px;
+  border-radius: 12px;
   /* 使用面板背景并添加亚克力效果 */
   background: var(--surface-panel);
   backdrop-filter: blur(18px) saturate(1.08);

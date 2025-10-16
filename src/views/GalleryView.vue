@@ -14,6 +14,7 @@ import {
   warn as logWarn,
 } from '@tauri-apps/plugin-log';
 import { useImageHostStore } from '../stores/imageHosts';
+import { useSettingsStore } from '../stores/settings';
 
 const keyword = ref('');
 const selectedHost = ref('');
@@ -315,38 +316,50 @@ async function confirmDeletion() {
     Array.isArray(confirmTarget.value.batchIds)
   ) {
     const ids: number[] = confirmTarget.value.batchIds.slice();
+    const settings = useSettingsStore();
+    const concurrency = Math.max(1, settings.maxConcurrentUploads.value ?? 5);
     let deleted = 0;
-    for (const id of ids) {
-      const target = items.value.find((it) => it.id === id);
-      if (!target) continue;
-      try {
-        const plugin = imageHostStore.getPluginById(target.host);
-        if (plugin && target.delete_marker) {
-          const res = await plugin.remove(
-            target.delete_marker,
-            imageHostStore.runtime
-          );
-          if (!res?.success) {
-            void logWarn(
-              `[gallery] batch plugin delete failed (id=${id}): ${res?.message}`
+    const idQueue = ids.slice();
+
+    // worker 池并发处理队列
+    const workers = Array.from({ length: concurrency }).map(async () => {
+      while (idQueue.length) {
+        const id = idQueue.shift();
+        if (id == null) break;
+        const target = items.value.find((it) => it.id === id);
+        if (!target) continue;
+        try {
+          const plugin = imageHostStore.getPluginById(target.host);
+          if (plugin && target.delete_marker) {
+            const res = await plugin.remove(
+              target.delete_marker,
+              imageHostStore.runtime
             );
+            if (!res?.success) {
+              void logWarn(
+                `[gallery] batch plugin delete failed (id=${id}): ${res?.message}`
+              );
+            }
           }
+        } catch (err) {
+          void logError(
+            `[gallery] batch plugin delete exception (id=${id}): ${String(err)}`
+          );
         }
-      } catch (err) {
-        void logError(
-          `[gallery] batch plugin delete exception (id=${id}): ${String(err)}`
-        );
+        try {
+          await deleteGalleryItem(id);
+          // 以原子方式更新 items
+          items.value = items.value.filter((it) => it.id !== id);
+          deleted++;
+        } catch (err) {
+          void logError(
+            `[gallery] batch db delete failed (id=${id}): ${String(err)}`
+          );
+        }
       }
-      try {
-        await deleteGalleryItem(id);
-        items.value = items.value.filter((it) => it.id !== id);
-        deleted++;
-      } catch (err) {
-        void logError(
-          `[gallery] batch db delete failed (id=${id}): ${String(err)}`
-        );
-      }
-    }
+    });
+
+    await Promise.all(workers);
     showToast(`已删除 ${deleted} 张图片`, 'success');
     // 清空选择并退出批量模式
     selectedOrder.value = [];
