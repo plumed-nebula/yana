@@ -3,6 +3,7 @@ import { computed, ref, watch, reactive, onMounted, onUnmounted } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import {
+  debug as logDebug,
   info as logInfo,
   error as logError,
   warn as logWarn,
@@ -78,9 +79,26 @@ const loading = store.loading;
 const ready = store.ready;
 const errorRef = store.error;
 
+const LOCALSTORAGE_KEY_PLUGIN = 'yana.upload.lastPluginId';
+const LOCALSTORAGE_KEY_FORMAT = 'yana.upload.lastFormat';
+
 const localPluginId = ref<string | null>(props.pluginId ?? null);
 const uploading = ref(false);
-const format = ref<FormatKey>('link');
+let initialFormat: FormatKey = 'link';
+try {
+  const raw = localStorage.getItem(LOCALSTORAGE_KEY_FORMAT);
+  if (
+    raw === 'link' ||
+    raw === 'html' ||
+    raw === 'bbcode' ||
+    raw === 'markdown'
+  ) {
+    initialFormat = raw as FormatKey;
+  }
+} catch (e) {
+  // ignore
+}
+const format = ref<FormatKey>(initialFormat);
 const uploadLines = ref<UploadLine[]>([]);
 const errorMessages = ref<string[]>([]);
 const nextId = ref(1);
@@ -192,7 +210,15 @@ watch(
       ? list.some((plugin) => plugin.id === localPluginId.value)
       : false;
     if (!localPluginId.value || !exists) {
-      updateSelected(list[0]!.id);
+      // choose first plugin and persist
+      const firstId = list[0]!.id;
+      localPluginId.value = firstId;
+      try {
+        localStorage.setItem(LOCALSTORAGE_KEY_PLUGIN, firstId);
+      } catch (e) {
+        /* ignore */
+      }
+      updateSelected(firstId);
     }
   },
   { immediate: true }
@@ -203,6 +229,28 @@ let unlistenEnter: (() => void) | null = null;
 let unlistenLeave: (() => void) | null = null;
 
 onMounted(async () => {
+  // Load persisted plugin selection if available
+  try {
+    const saved = localStorage.getItem(LOCALSTORAGE_KEY_PLUGIN);
+    if (saved) {
+      // Defer applying until plugins list is available; watcher on pluginList will handle fallback
+      localPluginId.value = saved;
+      try {
+        await logDebug?.('[upload] 恢复上次选中的图床: ' + saved);
+      } catch (e) {
+        /* ignore logging failure */
+      }
+    } else {
+      try {
+        await logDebug?.('[upload] 未找到已保存的图床选择');
+      } catch (e) {}
+    }
+  } catch (e) {
+    try {
+      await logDebug?.('[upload] 读取本地存储图床选择失败: ' + String(e));
+    } catch (ee) {}
+  }
+
   unlistenDrop = await listen<{
     paths: string[];
     position: { x: number; y: number };
@@ -256,14 +304,42 @@ function resetState(options?: { keepResults?: boolean; keepFormat?: boolean }) {
 }
 
 function updateSelected(id: string) {
-  if (localPluginId.value === id) return;
+  const previous = localPluginId.value;
   localPluginId.value = id;
-  resetState();
-  props.onSelectPlugin?.({ id, navigate: false });
+  try {
+    localStorage.setItem(LOCALSTORAGE_KEY_PLUGIN, id);
+    try {
+      logDebug?.(
+        '[upload] 保存选中图床: ' + id + ' (之前: ' + String(previous) + ')'
+      );
+    } catch (ee) {
+      /* ignore logging errors */
+    }
+  } catch (e) {
+    try {
+      logDebug?.('[upload] 保存选中图床失败: ' + String(e));
+    } catch (ee) {}
+  }
+  // If actually changed, reset and notify parent
+  if (previous !== id) {
+    resetState();
+    props.onSelectPlugin?.({ id, navigate: false });
+  }
 }
 
 function selectFormat(key: FormatKey) {
+  const prev = format.value;
   format.value = key;
+  try {
+    localStorage.setItem(LOCALSTORAGE_KEY_FORMAT, key);
+    try {
+      logDebug?.('[upload] 保存链接格式: ' + key + ' (之前: ' + prev + ')');
+    } catch (ee) {}
+  } catch (e) {
+    try {
+      logDebug?.('[upload] 保存链接格式失败: ' + String(e));
+    } catch (ee) {}
+  }
 }
 
 function extractName(path: string): string {

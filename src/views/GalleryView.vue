@@ -35,7 +35,24 @@ const toast = ref<{ message: string; kind: 'success' | 'error' } | null>(null);
 const confirmTarget = ref<any>(null);
 const confirmError = ref('');
 const deleteLoading = ref(false);
-const copyFormat = ref<'link' | 'html' | 'bbcode' | 'markdown'>('link');
+const LOCALSTORAGE_KEY_FORMAT = 'yana.upload.lastFormat';
+let initialCopyFormat: 'link' | 'html' | 'bbcode' | 'markdown' = 'link';
+try {
+  const raw = localStorage.getItem(LOCALSTORAGE_KEY_FORMAT);
+  if (
+    raw === 'link' ||
+    raw === 'html' ||
+    raw === 'bbcode' ||
+    raw === 'markdown'
+  ) {
+    initialCopyFormat = raw;
+  }
+} catch (e) {
+  // ignore
+}
+const copyFormat = ref<'link' | 'html' | 'bbcode' | 'markdown'>(
+  initialCopyFormat
+);
 
 const copyFormatOptions: Array<{
   value: typeof copyFormat.value;
@@ -46,6 +63,18 @@ const copyFormatOptions: Array<{
   { value: 'markdown', label: 'Markdown' },
   { value: 'bbcode', label: 'BBCode' },
 ];
+// persist copyFormat changes to localStorage so UploadView can share the same setting
+watch(
+  () => copyFormat.value,
+  (val, prev) => {
+    try {
+      localStorage.setItem(LOCALSTORAGE_KEY_FORMAT, val);
+      void logInfo(`[gallery] 保存复制格式: ${val} (之前: ${prev})`);
+    } catch (e) {
+      void logWarn(`[gallery] 无法保存复制格式: ${String(e)}`);
+    }
+  }
+);
 // options for host select
 const hostOptions = computed(() =>
   hosts.value.map((h) => ({ value: h, label: h }))

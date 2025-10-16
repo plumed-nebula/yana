@@ -6,9 +6,10 @@ Yana 是一个基于 Tauri（Rust 后端）和 Vue 3 + TypeScript（前端）的
 - 桌面原生应用（Tauri）结合现代前端（Vite + Vue 3）
 - 可扩展的插件系统：在运行时加载/重载第三方 Image Host 插件（ESM 模块）
 - 内置 S3 上传支持（后端签名和上传逻辑在 Rust/Tauri 后端实现）
+- 支持上传前压缩，有丰富的压缩选项
 
 ## 技术栈
-- 前端：Vue 3、TypeScript、Vite、Pinia
+- 前端：Vue 3、TypeScript、Vite
 - 后端：Tauri（Rust）
 - 打包：Tauri bundle（跨平台）
 
