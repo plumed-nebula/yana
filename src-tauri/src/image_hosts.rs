@@ -53,15 +53,20 @@ fn write_settings(path: &Path, payload: &ImageHostSettingsFile) -> Result<(), St
 fn candidate_plugin_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
+    // This is the primary location for plugins in production
     if let Ok(path) = app.path().resolve("plugins", BaseDirectory::Resource) {
         dirs.push(path);
     }
 
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    if let Some(workspace_root) = manifest_dir.parent() {
-        dirs.push(workspace_root.join("src").join("plugins"));
-    } else {
-        dirs.push(manifest_dir.join("src").join("plugins"));
+    // This is for development, to load plugins directly from the source directory
+    #[cfg(debug_assertions)]
+    {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if let Some(workspace_root) = manifest_dir.parent() {
+            dirs.push(workspace_root.join("src").join("plugins"));
+        } else {
+            dirs.push(manifest_dir.join("src").join("plugins"));
+        }
     }
 
     dirs
@@ -69,7 +74,7 @@ fn candidate_plugin_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
 
 fn collect_plugins_from_dir(
     dir: &Path,
-    collected: &mut BTreeMap<String, String>,
+    collected: &mut BTreeMap<String, PathBuf>,
 ) -> Result<(), String> {
     if !dir.exists() {
         debug!("plugin directory not found, skipping: {}", dir.display());
@@ -105,8 +110,7 @@ fn collect_plugins_from_dir(
             .and_then(|s| s.to_str())
             .unwrap_or(file_name)
             .to_string();
-        let script = format!("plugins/{file_name}");
-        collected.insert(id, script);
+        collected.insert(id, path);
     }
 
     Ok(())
@@ -127,7 +131,16 @@ fn discover_plugins(app: &tauri::AppHandle) -> Result<Vec<PluginEntryPayload>, S
 
     let mut result: Vec<PluginEntryPayload> = collected
         .into_iter()
-        .map(|(id, script)| PluginEntryPayload { id, script })
+        .map(|(id, path)| {
+            let mut script_path = path.to_str().unwrap_or("").to_string();
+            if script_path.starts_with("\\\\?\\") {
+                script_path = script_path[4..].to_string();
+            }
+            PluginEntryPayload {
+                id,
+                script: script_path,
+            }
+        })
         .collect();
 
     if !result.iter().any(|entry| entry.id == "s3") {
@@ -220,4 +233,46 @@ pub fn save_image_host_settings(
             Err(err)
         }
     }
+}
+
+/// 将指定的本地 JS 文件复制到资源插件目录并注册为新插件
+#[tauri::command]
+pub fn add_image_host_plugin(
+    app: tauri::AppHandle,
+    source: String,
+) -> Result<PluginEntryPayload, String> {
+    use std::fs;
+    use std::path::PathBuf;
+    use tauri::path::BaseDirectory;
+
+    // 验证源文件存在
+    let src_path = PathBuf::from(&source);
+    if !src_path.exists() {
+        return Err(format!("源文件不存在: {}", source));
+    }
+    // 确保后缀合法
+    let file_name = src_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("无法解析文件名: {}", source))?;
+    if !(file_name.ends_with(".js") || file_name.ends_with(".mjs")) {
+        return Err("仅支持 .js 或 .mjs 文件".into());
+    }
+    // 获取资源插件目录
+    let plugin_dir = app
+        .path()
+        .resolve("plugins", BaseDirectory::Resource)
+        .map_err(|e| format!("获取插件目录失败: {e}"))?;
+    fs::create_dir_all(&plugin_dir).map_err(|e| format!("创建插件目录失败: {}", e))?;
+    // 复制文件
+    let dest_path = plugin_dir.join(file_name);
+    fs::copy(&src_path, &dest_path).map_err(|e| format!("复制插件文件失败: {}", e))?;
+    // 构建返回值
+    let id = src_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(file_name)
+        .to_string();
+    let script = format!("plugins/{}", file_name);
+    Ok(PluginEntryPayload { id, script })
 }

@@ -1,10 +1,11 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import type { ImageHostPlugin } from '../types/imageHostPlugin';
+import { error } from '@tauri-apps/plugin-log';
 
 export interface PluginEntry {
   /** 插件唯一标识，用于存储和导航 */
   id: string;
-  /** 插件脚本路径，基于应用根路径 */
+  /** 插件脚本路径，绝对路径 */
   script: string;
 }
 
@@ -33,12 +34,43 @@ export async function getPluginEntries(force = false): Promise<PluginEntry[]> {
   return entriesPromise;
 }
 
+/**
+ * 解析插件脚本加载地址。
+ * DEV 下通过 HTTP URL；PROD 下通过 convertFileSrc 转换为 tauri.localhost URL。
+ */
 function resolvePluginUrl(entry: PluginEntry): string {
-  const base = window.location.origin;
-  const normalized = entry.script.startsWith('/')
-    ? entry.script
-    : `/${entry.script}`;
-  return new URL(normalized, base).href;
+  if (import.meta.env.DEV) {
+    const base = window.location.origin;
+    const normalized = entry.script.startsWith('/')
+      ? entry.script
+      : `/${entry.script}`;
+    return new URL(normalized, base).href;
+  } else {
+    // 生产模式：使用 convertFileSrc 将资源路径转为可加载的 URL
+    const url = convertFileSrc(entry.script);
+
+    /*
+    // 原先的 fetch 打印逻辑（调试用），已注释以减少启动噪音。若需要再次开启，取消注释即可。
+    (async () => {
+      try {
+        const resp = await fetch(url);
+        const text = await resp.text();
+        info(
+          `[imageHosts] resolvePluginUrl fetched plugin text for ${entry.id} ${url}`
+        );
+        info(text);
+      } catch (e) {
+        error(
+          `[imageHosts] resolvePluginUrl failed to fetch plugin text for ${
+            entry.id
+          } ${url}: ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+    })();
+    */
+
+    return url;
+  }
 }
 
 export async function loadPlugin(entry: PluginEntry): Promise<LoadedPlugin> {
@@ -247,7 +279,39 @@ export async function loadPlugin(entry: PluginEntry): Promise<LoadedPlugin> {
         return stub;
       }
       const url = resolvePluginUrl(entry);
-      const mod = await import(/* @vite-ignore */ url);
+      let mod: any;
+      try {
+        mod = await import(/* @vite-ignore */ url);
+      } catch (importErr) {
+        // 动态 import 失败，尝试降级：fetch 源码并使用 Blob URL 导入
+        try {
+          error(
+            `[imageHosts] dynamic import failed for ${entry.id} ${url}: ${
+              importErr instanceof Error ? importErr.message : String(importErr)
+            }`
+          );
+        } catch {}
+        try {
+          const resp = await fetch(url);
+          const text = await resp.text();
+          const blob = new Blob([text], { type: 'application/javascript' });
+          const blobUrl = URL.createObjectURL(blob);
+          try {
+            mod = await import(/* @vite-ignore */ blobUrl);
+          } finally {
+            // 立即释放 blob URL，模块已被加载到内存
+            URL.revokeObjectURL(blobUrl);
+          }
+        } catch (fallbackErr) {
+          throw new Error(
+            `failed to load plugin ${entry.id}: ${
+              fallbackErr instanceof Error
+                ? fallbackErr.message
+                : String(fallbackErr)
+            }`
+          );
+        }
+      }
       const pluginModule: ImageHostPlugin | undefined = (mod.default ??
         mod) as ImageHostPlugin;
 

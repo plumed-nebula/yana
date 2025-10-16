@@ -62,6 +62,7 @@ pub fn run() {
             image_hosts::list_image_host_plugins,
             image_hosts::load_image_host_settings,
             image_hosts::save_image_host_settings,
+            image_hosts::add_image_host_plugin,
             upload::upload_image,
             s3::s3_upload,
             s3::s3_delete,

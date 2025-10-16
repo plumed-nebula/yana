@@ -15,6 +15,7 @@
         "title": "yana",
         "width": 800,
         "height": 600,
+        "minHeight": 600,
         "minWidth": 800,
         "decorations": false,
         "shadow": true,
@@ -22,12 +23,21 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: http://asset.localhost; img-src * data: blob: asset: http://asset.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$RESOURCE/**"
+        ]
+      }
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "../src/plugins/**/*.js": "plugins/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

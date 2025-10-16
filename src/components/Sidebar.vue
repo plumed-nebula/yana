@@ -119,38 +119,40 @@ const sidebarWidth = computed(() => (collapsed.value ? '64px' : '240px'));
             v-if="item.key === 'hosts' && pluginListVisible"
             class="plugin-menu"
           >
-            <div
-              v-if="props.pluginLoading && !props.plugins.length"
-              class="plugin-empty"
-            >
-              <Loader2 class="spinner" :size="18" />
-              <span>正在加载插件…</span>
-            </div>
-            <template v-else>
-              <button
-                v-for="plugin in props.plugins"
-                :key="plugin.id"
-                type="button"
-                :class="[
-                  'plugin-item',
-                  { selected: plugin.id === props.selectedPluginId },
-                ]"
-                @click="handlePluginClick(plugin.id)"
+            <div class="plugin-menu-scroll">
+              <div
+                v-if="props.pluginLoading && !props.plugins.length"
+                class="plugin-empty"
               >
-                <div class="item-main">
-                  <span class="name">{{ plugin.name }}</span>
-                  <span class="meta">{{ plugin.author ?? '官方提供' }}</span>
-                </div>
-                <Check
-                  v-if="plugin.id === props.selectedPluginId"
-                  :size="18"
-                  class="check"
-                />
-              </button>
-              <div v-if="!props.plugins.length" class="plugin-empty">
-                <span>暂无可用插件</span>
+                <Loader2 class="spinner" :size="18" />
+                <span>正在加载插件…</span>
               </div>
-            </template>
+              <template v-else>
+                <button
+                  v-for="plugin in props.plugins"
+                  :key="plugin.id"
+                  type="button"
+                  :class="[
+                    'plugin-item',
+                    { selected: plugin.id === props.selectedPluginId },
+                  ]"
+                  @click="handlePluginClick(plugin.id)"
+                >
+                  <div class="item-main">
+                    <span class="name">{{ plugin.name }}</span>
+                    <span class="meta">{{ plugin.author ?? '官方提供' }}</span>
+                  </div>
+                  <Check
+                    v-if="plugin.id === props.selectedPluginId"
+                    :size="18"
+                    class="check"
+                  />
+                </button>
+                <div v-if="!props.plugins.length" class="plugin-empty">
+                  <span>暂无可用插件</span>
+                </div>
+              </template>
+            </div>
           </div>
         </transition>
       </div>
@@ -278,6 +280,18 @@ const sidebarWidth = computed(() => (collapsed.value ? '64px' : '240px'));
   padding: 10px 10px 12px;
   border: 1px solid var(--sidebar-border);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.plugin-menu-scroll {
+  max-height: max(
+    calc(100vh - 500px),
+    150px
+  ); /* 基于视口高度自适应，可根据顶部 brand/header 和底部折叠按钮调整 */
+  overflow-y: auto;
+  padding-right: 6px; /* 给滚动条留出空间 */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .plugin-item {

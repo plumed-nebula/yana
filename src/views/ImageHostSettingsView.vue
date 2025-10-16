@@ -100,7 +100,7 @@ function handleManualSave() {
             <li v-if="activePlugin.version">
               版本：{{ activePlugin.version }}
             </li>
-            <li>脚本来源：{{ activePlugin.sourceUrl }}</li>
+            <!-- 脚本来源信息已移除，由于安全和界面简洁性需求 -->
             <li>支持格式：{{ supportedTypesText }}</li>
           </ul>
         </section>

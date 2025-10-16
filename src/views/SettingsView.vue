@@ -4,6 +4,8 @@ import GlobalSelect from '../components/GlobalSelect.vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
 import { info, error as logError } from '@tauri-apps/plugin-log';
+import { open } from '@tauri-apps/plugin-dialog';
+import { clearPluginCache } from '../plugins/registry';
 
 const settings = useSettingsStore();
 
@@ -70,6 +72,30 @@ function restoreDefaults() {
   settings.pngOptimization.value = 'default';
   settings.enableUploadCompression.value = false;
   settings.maxConcurrentUploads.value = 5;
+}
+
+/**
+ * 弹窗选择本地 JS 文件并添加为图床插件
+ */
+async function loadPlugin() {
+  try {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: 'JS Files', extensions: ['js', 'mjs'] }],
+    });
+    if (typeof selected !== 'string') return;
+    await invoke('add_image_host_plugin', { source: selected });
+    clearPluginCache();
+    window.location.reload();
+  } catch (e) {
+    logError(`[settings] load plugin failed: ${e}`);
+  }
+}
+
+async function reloadPlugins() {
+  // 清除插件加载缓存，并刷新界面以重新加载脚本
+  clearPluginCache();
+  window.location.reload();
 }
 </script>
 
@@ -233,7 +259,9 @@ function restoreDefaults() {
         </div>
         <div class="buttons">
           <button type="button" @click="openLogDir">打开日志目录</button>
+          <button type="button" @click="loadPlugin">加载插件</button>
           <button type="button" @click="restoreDefaults">恢复默认</button>
+          <button type="button" @click="reloadPlugins">重载插件</button>
         </div>
       </footer>
     </div>
