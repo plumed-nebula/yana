@@ -13,18 +13,19 @@
     "dialog:allow-message",
     "fs:allow-copy-file",
     "http:default",
-  "os:default",
+    "os:default",
     "core:window:allow-close",
     "core:window:allow-maximize",
     "core:window:allow-minimize",
     "core:window:allow-unmaximize",
     {
       "identifier": "http:allow-fetch",
-      "allow": [
-        "https://*",
-        "http://*"
-      ]
+      "allow": ["https://*", "http://*"]
     },
-    "fs:read-files"
+    "fs:read-files",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://github.com/plumed-nebula/yana/releases" }]
+    }
   ]
 }

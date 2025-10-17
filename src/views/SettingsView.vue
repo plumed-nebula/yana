@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch, onBeforeUnmount, onMounted } from 'vue';
 import GlobalSelect from '../components/GlobalSelect.vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
+import { getVersion } from '@tauri-apps/api/app';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { fetch } from '@tauri-apps/plugin-http';
 import { info, error as logError } from '@tauri-apps/plugin-log';
 import { open } from '@tauri-apps/plugin-dialog';
 import { clearPluginCache } from '../plugins/registry';
@@ -97,6 +100,180 @@ async function reloadPlugins() {
   clearPluginCache();
   window.location.reload();
 }
+
+// Update check state
+const updateModalOpen = ref(false);
+const localVersion = ref<string | null>(null);
+const latestRelease = ref<any>(null);
+const updateError = ref<string | null>(null);
+const checking = ref(false);
+const dismissCurrentVersion = ref(false);
+
+// LocalStorage 相关常量
+const STORAGE_KEY_DISMISSED_VERSION = 'yana.settings.dismissedVersion';
+
+/**
+ * 获取被用户忽略的版本
+ */
+function getDismissedVersion(): string {
+  try {
+    return localStorage.getItem(STORAGE_KEY_DISMISSED_VERSION) || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 忽略某个版本
+ */
+function dismissVersion(version: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_DISMISSED_VERSION, version);
+  } catch (e) {
+    logError(`Failed to save dismissed version: ${e}`);
+  }
+}
+
+async function checkForUpdates(autoCheck = false, force = false) {
+  updateError.value = null;
+  latestRelease.value = null;
+  checking.value = true;
+  dismissCurrentVersion.value = false;
+  try {
+    localVersion.value = await getVersion();
+  } catch (e) {
+    updateError.value = `获取本地版本失败：${e}`;
+    checking.value = false;
+    if (!autoCheck) {
+      updateModalOpen.value = true;
+    } else {
+      logError(`[settings] Auto check version failed: ${e}`);
+    }
+    return;
+  }
+
+  try {
+    // 使用 GitHub Releases API 获取最新 release（不使用身份验证）
+    // 请根据仓库调整 owner/repo
+    const owner = 'plumed-nebula';
+    const repo = 'yana';
+    const resp = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      }
+    );
+    if (resp.ok) {
+      latestRelease.value = await resp.json();
+
+      // 判断是否需要显示弹窗
+      if (latestRelease.value) {
+        const normalizedLocal = normalizeVersion(localVersion.value);
+        const normalizedLatest = normalizeVersion(latestRelease.value.tag_name);
+        const dismissedVersion = getDismissedVersion();
+
+        // force 为 true 时无论如何都显示弹窗
+        if (force) {
+          updateModalOpen.value = true;
+          // 检查该版本是否已被忽略，若已忽略则 checkbox 为选中状态
+          if (normalizedLatest === dismissedVersion) {
+            dismissCurrentVersion.value = true;
+          }
+        } else if (
+          normalizedLocal !== normalizedLatest &&
+          normalizedLatest !== dismissedVersion
+        ) {
+          // 版本不一致且该版本未被用户忽略，则显示弹窗
+          updateModalOpen.value = true;
+        } else if (!autoCheck && normalizedLocal === normalizedLatest) {
+          // 手动检查时版本相同也要显示结果
+          updateModalOpen.value = true;
+        }
+      }
+    } else {
+      updateError.value = `请求 GitHub Release 失败：${resp.status}`;
+      if (!autoCheck) {
+        updateModalOpen.value = true;
+      } else {
+        logError(
+          `[settings] Failed to fetch latest release: HTTP ${resp.status}`
+        );
+      }
+    }
+  } catch (e) {
+    updateError.value = `请求 GitHub Release 失败：${e}`;
+    if (!autoCheck) {
+      updateModalOpen.value = true;
+    } else {
+      logError(`[settings] Failed to fetch latest release: ${e}`);
+    }
+  } finally {
+    checking.value = false;
+  }
+}
+
+/**
+ * 手动触发版本检查（总是显示弹窗）
+ */
+function manualCheckForUpdates() {
+  checkForUpdates(false, true);
+}
+
+/**
+ * 关闭弹窗
+ */
+function closeUpdateModal() {
+  if (dismissCurrentVersion.value && latestRelease.value) {
+    // 用户勾选了"不再提醒此版本"，保存到 localStorage
+    const normalizedVersion = normalizeVersion(latestRelease.value.tag_name);
+    dismissVersion(normalizedVersion);
+  } else if (!dismissCurrentVersion.value && latestRelease.value) {
+    // 用户取消了勾选，清除之前的忽略记录
+    try {
+      localStorage.removeItem(STORAGE_KEY_DISMISSED_VERSION);
+    } catch (e) {
+      logError(`Failed to clear dismissed version: ${e}`);
+    }
+  }
+  updateModalOpen.value = false;
+  dismissCurrentVersion.value = false;
+}
+
+function openReleasePage() {
+  if (!latestRelease.value) return;
+  const url =
+    latestRelease.value.html_url ||
+    `https://github.com/${'plumed-nebula'}/${'yana'}/releases`;
+  // 在 Tauri 中直接打开外部链接也可以使用 invoke 到后端，简单方案使用 window.open
+  openUrl(url);
+}
+
+/**
+ * 规范化版本号，去掉前缀的 'v'
+ */
+function normalizeVersion(version: string | null | undefined): string {
+  if (!version) return '未知';
+  return version.startsWith('v') ? version.substring(1) : version;
+}
+
+// 组件挂载时自动检查版本
+onMounted(() => {
+  checkForUpdates(true);
+});
+
+// 当弹窗打开时禁用滚动条，关闭时恢复
+watch(
+  () => updateModalOpen.value,
+  (isOpen) => {
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+  }
+);
+
+// 卸载时清理滚动条状态
+onBeforeUnmount(() => {
+  document.body.style.overflow = '';
+});
 </script>
 
 <template>
@@ -263,9 +440,81 @@ async function reloadPlugins() {
           <button type="button" @click="loadPlugin">加载插件</button>
           <button type="button" @click="restoreDefaults">恢复默认</button>
           <button type="button" @click="reloadPlugins">重载插件</button>
+          <button
+            type="button"
+            @click="manualCheckForUpdates"
+            :disabled="checking"
+          >
+            检查更新
+          </button>
         </div>
       </footer>
     </div>
+
+    <!-- Update modal (teleported-style overlay) -->
+    <teleport to="body">
+      <div
+        v-if="updateModalOpen"
+        class="confirm-overlay"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="confirm-dialog">
+          <h3>检查更新</h3>
+          <div class="message">
+            <p v-if="checking">正在检查更新…</p>
+            <p v-else>
+              本地版本： <strong>{{ normalizeVersion(localVersion) }}</strong>
+            </p>
+            <p v-if="latestRelease">
+              最新 Release：
+              <strong>{{ normalizeVersion(latestRelease.tag_name) }}</strong>
+              <br />发布日期：<span>{{ latestRelease.published_at }}</span>
+            </p>
+            <p v-if="!latestRelease && !checking && !updateError">
+              未能获取到最新版信息。
+            </p>
+            <p v-if="updateError" class="sub">错误：{{ updateError }}</p>
+            <p
+              class="sub"
+              style="margin-top: 12px; color: var(--text-secondary)"
+            >
+              若需查看完整 Release 页面，请点击下方"打开 Release 页面"。
+            </p>
+            <label
+              style="
+                margin-top: 16px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+              "
+            >
+              <input
+                type="checkbox"
+                v-model="dismissCurrentVersion"
+                style="cursor: pointer"
+              />
+              <span style="font-size: 14px; color: var(--text-secondary)"
+                >不再提醒此版本</span
+              >
+            </label>
+          </div>
+          <div class="confirm-actions">
+            <button class="ghost" type="button" @click="closeUpdateModal">
+              关闭
+            </button>
+            <button
+              type="button"
+              @click="openReleasePage"
+              :disabled="!latestRelease"
+            >
+              打开 Release 页面
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -469,6 +718,110 @@ footer {
 
 .buttons button:active {
   transform: translateY(1px);
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 32px;
+  z-index: 1300;
+}
+
+.confirm-overlay::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  z-index: -1;
+}
+
+.confirm-dialog {
+  width: min(520px, 90vw);
+  background: var(--surface-panel);
+  border-radius: 20px;
+  padding: 28px 24px;
+  border: 1px solid var(--surface-border);
+  box-shadow: 0 24px 60px rgba(5, 8, 18, 0.42);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+}
+
+.confirm-dialog h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.confirm-dialog .message {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.confirm-dialog .message strong {
+  font-weight: 700;
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.confirm-dialog .sub {
+  margin: -8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  opacity: 0.8;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.confirm-actions .ghost,
+.confirm-actions button {
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, opacity 0.2s ease,
+    border-color 0.2s ease;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
+}
+
+.confirm-actions .ghost {
+  color: var(--text-secondary);
+}
+
+.confirm-actions button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.confirm-actions .ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  transform: translateY(-1px);
+}
+
+.confirm-actions button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
 }
 
 @media (max-width: 640px) {
