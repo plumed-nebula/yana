@@ -42,6 +42,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "Utility",
+    "shortDescription": "图床管理工具",
+    "longDescription": "yana 是一款开源的图床管理工具，内置多种图床服务以及压缩功能，支持自定义插件，帮助用户轻松上传和管理图片。",
+    "windows": {
+      "wix": {
+        "language": "zh-CN"
+      },
+      "nsis": {
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true
+      }
+    }
   }
 }

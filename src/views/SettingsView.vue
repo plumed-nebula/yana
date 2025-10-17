@@ -111,6 +111,10 @@ const dismissCurrentVersion = ref(false);
 
 // LocalStorage 相关常量
 const STORAGE_KEY_DISMISSED_VERSION = 'yana.settings.dismissedVersion';
+const STORAGE_KEY_CACHED_RELEASE = 'yana.settings.cachedRelease';
+const STORAGE_KEY_CACHE_TIMESTAMP = 'yana.settings.cacheTimestamp';
+const STORAGE_KEY_RATE_LIMIT_RESET = 'yana.settings.rateLimitReset';
+const CACHE_DURATION_MS = 1 * 60 * 60 * 1000; // 1 小时
 
 /**
  * 获取被用户忽略的版本
@@ -134,6 +138,90 @@ function dismissVersion(version: string): void {
   }
 }
 
+/**
+ * 从缓存中获取 release 信息
+ */
+function getCachedRelease(): any {
+  try {
+    const cached = localStorage.getItem(STORAGE_KEY_CACHED_RELEASE);
+    const timestamp = localStorage.getItem(STORAGE_KEY_CACHE_TIMESTAMP);
+
+    if (!cached || !timestamp) return null;
+
+    const cacheTime = parseInt(timestamp, 10);
+    const now = Date.now();
+
+    // 检查缓存是否还未过期
+    if (now - cacheTime < CACHE_DURATION_MS) {
+      info(
+        `[settings] Using cached release info (${Math.round(
+          (now - cacheTime) / 1000 / 60
+        )} minutes old)`
+      );
+      return JSON.parse(cached);
+    }
+
+    // 缓存已过期，清除
+    localStorage.removeItem(STORAGE_KEY_CACHED_RELEASE);
+    localStorage.removeItem(STORAGE_KEY_CACHE_TIMESTAMP);
+    return null;
+  } catch (e) {
+    logError(`Failed to get cached release: ${e}`);
+    return null;
+  }
+}
+
+/**
+ * 保存 release 信息到缓存
+ */
+function setCachedRelease(release: any): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CACHED_RELEASE, JSON.stringify(release));
+    localStorage.setItem(STORAGE_KEY_CACHE_TIMESTAMP, Date.now().toString());
+  } catch (e) {
+    logError(`Failed to save cached release: ${e}`);
+  }
+}
+
+/**
+ * 检查是否处于速率限制期间
+ */
+function isRateLimited(): boolean {
+  try {
+    const resetTime = localStorage.getItem(STORAGE_KEY_RATE_LIMIT_RESET);
+    if (!resetTime) return false;
+
+    const now = Date.now();
+    const reset = parseInt(resetTime, 10);
+
+    if (now < reset) {
+      logError(
+        `[settings] Rate limited until ${new Date(reset).toISOString()}`
+      );
+      return true;
+    }
+
+    // 限制期已过，清除
+    localStorage.removeItem(STORAGE_KEY_RATE_LIMIT_RESET);
+    return false;
+  } catch (e) {
+    logError(`Failed to check rate limit: ${e}`);
+    return false;
+  }
+}
+
+/**
+ * 设置速率限制恢复时间
+ */
+function setRateLimitReset(seconds: number): void {
+  try {
+    const resetTime = Date.now() + seconds * 1000;
+    localStorage.setItem(STORAGE_KEY_RATE_LIMIT_RESET, resetTime.toString());
+  } catch (e) {
+    logError(`Failed to set rate limit reset: ${e}`);
+  }
+}
+
 async function checkForUpdates(autoCheck = false, force = false) {
   updateError.value = null;
   latestRelease.value = null;
@@ -153,63 +241,163 @@ async function checkForUpdates(autoCheck = false, force = false) {
   }
 
   try {
-    // 使用 GitHub Releases API 获取最新 release（不使用身份验证）
-    // 请根据仓库调整 owner/repo
     const owner = 'plumed-nebula';
     const repo = 'yana';
+    const cached = getCachedRelease();
+
+    // 自动检查：优先使用缓存
+    if (autoCheck && cached) {
+      info(`[settings] Auto check: using cached release`);
+      latestRelease.value = cached;
+      checking.value = false;
+      processReleaseInfo(autoCheck, force, false);
+      return;
+    }
+
+    // 检查是否处于速率限制期间
+    if (isRateLimited()) {
+      logError(`[settings] Currently rate limited`);
+      // 尝试使用缓存
+      if (cached) {
+        latestRelease.value = cached;
+        updateError.value = '(使用缓存信息，API 暂时受限)';
+        checking.value = false;
+        processReleaseInfo(autoCheck, force, false);
+      } else {
+        updateError.value = 'GitHub API 请求过于频繁，请稍后再试';
+        if (!autoCheck) {
+          updateModalOpen.value = true;
+        } else {
+          logError(`[settings] Rate limited, no cache available`);
+        }
+        checking.value = false;
+      }
+      return;
+    }
+
+    // 手动检查或自动检查无缓存：尝试请求最新数据
     const resp = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
       {
         method: 'GET',
-        headers: { Accept: 'application/vnd.github.v3+json' },
+        headers: {
+          Accept: 'application/vnd.github.v3+json',
+          // 如果有缓存，使用 ETag 进行条件请求（不消耗速率限制）
+          ...(cached && cached.etag ? { 'If-None-Match': cached.etag } : {}),
+        },
       }
     );
+
+    // 处理 HTTP 304（未修改，缓存有效）
+    if (resp.status === 304 && cached) {
+      info(`[settings] Using cached release (HTTP 304 Not Modified)`);
+      latestRelease.value = cached;
+      checking.value = false;
+      processReleaseInfo(autoCheck, force, false);
+      return;
+    }
+
     if (resp.ok) {
-      latestRelease.value = await resp.json();
+      const release = await resp.json();
+      // 保存 ETag 和数据到缓存
+      (release as any).etag = resp.headers.get('etag');
+      setCachedRelease(release);
+      latestRelease.value = release;
+      checking.value = false;
+      processReleaseInfo(autoCheck, force, false);
+    } else if (resp.status === 403) {
+      // 速率限制
+      const resetTime = resp.headers.get('X-RateLimit-Reset');
+      if (resetTime) {
+        const reset = parseInt(resetTime, 10) * 1000;
+        const now = Date.now();
+        const seconds = Math.ceil((reset - now) / 1000);
+        setRateLimitReset(Math.max(seconds, 60));
+      } else {
+        // 没有 Reset 头，默认 1 小时
+        setRateLimitReset(3600);
+      }
 
-      // 判断是否需要显示弹窗
-      if (latestRelease.value) {
-        const normalizedLocal = normalizeVersion(localVersion.value);
-        const normalizedLatest = normalizeVersion(latestRelease.value.tag_name);
-        const dismissedVersion = getDismissedVersion();
-
-        // force 为 true 时无论如何都显示弹窗
-        if (force) {
+      // 请求失败，回退到缓存
+      if (cached) {
+        logError(`[settings] Rate limited (403), falling back to cache`);
+        latestRelease.value = cached;
+        updateError.value = '(使用缓存信息，API 暂时受限)';
+      } else {
+        updateError.value = 'GitHub API 请求过于频繁，请稍后再试';
+        if (!autoCheck) {
           updateModalOpen.value = true;
-          // 检查该版本是否已被忽略，若已忽略则 checkbox 为选中状态
-          if (normalizedLatest === dismissedVersion) {
-            dismissCurrentVersion.value = true;
-          }
-        } else if (
-          normalizedLocal !== normalizedLatest &&
-          normalizedLatest !== dismissedVersion
-        ) {
-          // 版本不一致且该版本未被用户忽略，则显示弹窗
-          updateModalOpen.value = true;
-        } else if (!autoCheck && normalizedLocal === normalizedLatest) {
-          // 手动检查时版本相同也要显示结果
-          updateModalOpen.value = true;
+        } else {
+          logError(`[settings] Rate limited (403), no cache available`);
         }
       }
+      checking.value = false;
     } else {
+      // 其他 HTTP 错误
       updateError.value = `请求 GitHub Release 失败：${resp.status}`;
-      if (!autoCheck) {
+
+      // 手动检查失败时回退到缓存
+      if (!autoCheck && cached) {
+        logError(`[settings] HTTP ${resp.status}, falling back to cache`);
+        latestRelease.value = cached;
+        updateError.value = `(请求失败 HTTP ${resp.status}，使用缓存信息)`;
+      } else if (!autoCheck) {
         updateModalOpen.value = true;
       } else {
         logError(
           `[settings] Failed to fetch latest release: HTTP ${resp.status}`
         );
       }
+      checking.value = false;
     }
   } catch (e) {
     updateError.value = `请求 GitHub Release 失败：${e}`;
-    if (!autoCheck) {
+
+    // 请求异常，回退到缓存
+    const cached = getCachedRelease();
+    if (!autoCheck && cached) {
+      logError(`[settings] Request error, falling back to cache`);
+      latestRelease.value = cached;
+      updateError.value = `(请求出错，使用缓存信息)`;
+    } else if (!autoCheck) {
       updateModalOpen.value = true;
     } else {
       logError(`[settings] Failed to fetch latest release: ${e}`);
     }
-  } finally {
     checking.value = false;
+  }
+}
+
+/**
+ * 处理获取到的 release 信息
+ */
+function processReleaseInfo(
+  autoCheck = false,
+  force = false,
+  fromError = false
+) {
+  if (!latestRelease.value) return;
+
+  const normalizedLocal = normalizeVersion(localVersion.value);
+  const normalizedLatest = normalizeVersion(latestRelease.value.tag_name);
+  const dismissedVersion = getDismissedVersion();
+
+  // 根据是否是强制检查或手动检查决定是否显示弹窗
+  const shouldShowModal =
+    // force 为 true 时无论如何都显示弹窗
+    force ||
+    // 版本不一致且该版本未被用户忽略，则显示弹窗
+    (normalizedLocal !== normalizedLatest &&
+      normalizedLatest !== dismissedVersion) ||
+    // 手动检查时版本相同也要显示结果（只在非错误情况下且为手动检查）
+    (!fromError && !autoCheck && normalizedLocal === normalizedLatest);
+
+  if (shouldShowModal) {
+    updateModalOpen.value = true;
+    // 检查该版本是否已被忽略，若已忽略则 checkbox 为选中状态
+    if (normalizedLatest === dismissedVersion) {
+      dismissCurrentVersion.value = true;
+    }
   }
 }
 

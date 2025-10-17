@@ -2,6 +2,10 @@
 
 Yana 是一个基于 Tauri（Rust 后端）和 Vue 3 + TypeScript（前端）的桌面图像管理/上传工具。应用支持可插拔的图片上传后端（Image Host Plugin），并包含内置的 S3 后端实现。用户可以在运行时添加自定义 JS 插件来扩展支持的图像托管服务。
 
+## 使用方法
+
+详见 [使用方法 (USAGE.md)](./USAGE.md)
+
 ## 项目亮点
 - 桌面原生应用（Tauri）结合现代前端（Vite + Vue 3）
 - 可扩展的插件系统：在运行时加载/重载第三方 Image Host 插件（ESM 模块）
