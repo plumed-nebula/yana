@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from 'vue';
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import Sidebar from './components/Sidebar.vue';
 import Titlebar from './components/Titlebar.vue';
 import SettingsView from './views/SettingsView.vue';
@@ -11,7 +11,10 @@ import { useImageHostStore } from './stores/imageHosts';
 import { useThemeStore } from './stores/theme';
 import type { LoadedPlugin } from './plugins/registry';
 import { platform } from '@tauri-apps/plugin-os';
-import { warn } from '@tauri-apps/plugin-log';
+import { warn, info, error as logError } from '@tauri-apps/plugin-log';
+import { getVersion } from '@tauri-apps/api/app';
+import { fetch } from '@tauri-apps/plugin-http';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 type ViewKey = 'compress' | 'upload' | 'gallery' | 'hosts' | 'settings';
 
@@ -75,9 +78,365 @@ const pluginList = computed(
 );
 const pluginLoading = computed(() => imageHostStore.loading.value);
 
+// ========== Version check state and logic ==========
+const updateModalOpen = ref(false);
+const localVersion = ref<string | null>(null);
+const latestRelease = ref<any>(null);
+const updateError = ref<string | null>(null);
+const checking = ref(false);
+const dismissCurrentVersion = ref(false);
+
+// LocalStorage 相关常量
+const STORAGE_KEY_DISMISSED_VERSION = 'yana.settings.dismissedVersion';
+const STORAGE_KEY_CACHED_RELEASE = 'yana.settings.cachedRelease';
+const STORAGE_KEY_CACHE_TIMESTAMP = 'yana.settings.cacheTimestamp';
+const STORAGE_KEY_RATE_LIMIT_RESET = 'yana.settings.rateLimitReset';
+const CACHE_DURATION_MS = 1 * 60 * 60 * 1000; // 1 小时
+
+/**
+ * 获取被用户忽略的版本
+ */
+function getDismissedVersion(): string {
+  try {
+    return localStorage.getItem(STORAGE_KEY_DISMISSED_VERSION) || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 忽略某个版本
+ */
+function dismissVersion(version: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_DISMISSED_VERSION, version);
+  } catch (e) {
+    logError(`Failed to save dismissed version: ${e}`);
+  }
+}
+
+/**
+ * 从缓存中获取 release 信息
+ */
+function getCachedRelease(): any {
+  try {
+    const cached = localStorage.getItem(STORAGE_KEY_CACHED_RELEASE);
+    const timestamp = localStorage.getItem(STORAGE_KEY_CACHE_TIMESTAMP);
+
+    if (!cached || !timestamp) return null;
+
+    const cacheTime = parseInt(timestamp, 10);
+    const now = Date.now();
+
+    // 检查缓存是否还未过期
+    if (now - cacheTime < CACHE_DURATION_MS) {
+      info(
+        `[App] Using cached release info (${Math.round(
+          (now - cacheTime) / 1000 / 60
+        )} minutes old)`
+      );
+      return JSON.parse(cached);
+    }
+
+    // 缓存已过期，清除
+    localStorage.removeItem(STORAGE_KEY_CACHED_RELEASE);
+    localStorage.removeItem(STORAGE_KEY_CACHE_TIMESTAMP);
+    return null;
+  } catch (e) {
+    logError(`Failed to get cached release: ${e}`);
+    return null;
+  }
+}
+
+/**
+ * 保存 release 信息到缓存
+ */
+function setCachedRelease(release: any): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_CACHED_RELEASE, JSON.stringify(release));
+    localStorage.setItem(STORAGE_KEY_CACHE_TIMESTAMP, Date.now().toString());
+  } catch (e) {
+    logError(`Failed to save cached release: ${e}`);
+  }
+}
+
+/**
+ * 检查是否处于速率限制期间
+ */
+function isRateLimited(): boolean {
+  try {
+    const resetTime = localStorage.getItem(STORAGE_KEY_RATE_LIMIT_RESET);
+    if (!resetTime) return false;
+
+    const now = Date.now();
+    const reset = parseInt(resetTime, 10);
+
+    if (now < reset) {
+      logError(`[App] Rate limited until ${new Date(reset).toISOString()}`);
+      return true;
+    }
+
+    // 限制期已过，清除
+    localStorage.removeItem(STORAGE_KEY_RATE_LIMIT_RESET);
+    return false;
+  } catch (e) {
+    logError(`Failed to check rate limit: ${e}`);
+    return false;
+  }
+}
+
+/**
+ * 设置速率限制恢复时间
+ */
+function setRateLimitReset(seconds: number): void {
+  try {
+    const resetTime = Date.now() + seconds * 1000;
+    localStorage.setItem(STORAGE_KEY_RATE_LIMIT_RESET, resetTime.toString());
+  } catch (e) {
+    logError(`Failed to set rate limit reset: ${e}`);
+  }
+}
+
+async function checkForUpdates(autoCheck = false, force = false) {
+  updateError.value = null;
+  latestRelease.value = null;
+  checking.value = true;
+  dismissCurrentVersion.value = false;
+  try {
+    localVersion.value = await getVersion();
+  } catch (e) {
+    updateError.value = `获取本地版本失败：${e}`;
+    checking.value = false;
+    if (!autoCheck) {
+      updateModalOpen.value = true;
+    } else {
+      logError(`[App] Auto check version failed: ${e}`);
+    }
+    return;
+  }
+
+  try {
+    const owner = 'plumed-nebula';
+    const repo = 'yana';
+    const cached = getCachedRelease();
+
+    // 自动检查：优先使用缓存
+    if (autoCheck && cached) {
+      info(`[App] Auto check: using cached release`);
+      latestRelease.value = cached;
+      checking.value = false;
+      processReleaseInfo(autoCheck, force, false);
+      return;
+    }
+
+    // 检查是否处于速率限制期间
+    if (isRateLimited()) {
+      logError(`[App] Currently rate limited`);
+      // 尝试使用缓存
+      if (cached) {
+        latestRelease.value = cached;
+        updateError.value = '(使用缓存信息，API 暂时受限)';
+        checking.value = false;
+        processReleaseInfo(autoCheck, force, false);
+      } else {
+        updateError.value = 'GitHub API 请求过于频繁，请稍后再试';
+        if (!autoCheck) {
+          updateModalOpen.value = true;
+        } else {
+          logError(`[App] Rate limited, no cache available`);
+        }
+        checking.value = false;
+      }
+      return;
+    }
+
+    // 手动检查或自动检查无缓存：尝试请求最新数据
+    const resp = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
+      {
+        method: 'GET',
+        headers: {
+          Accept: 'application/vnd.github.v3+json',
+          // 如果有缓存，使用 ETag 进行条件请求（不消耗速率限制）
+          ...(cached && cached.etag ? { 'If-None-Match': cached.etag } : {}),
+        },
+      }
+    );
+
+    // 处理 HTTP 304（未修改，缓存有效）
+    if (resp.status === 304 && cached) {
+      info(`[App] Using cached release (HTTP 304 Not Modified)`);
+      latestRelease.value = cached;
+      checking.value = false;
+      processReleaseInfo(autoCheck, force, false);
+      return;
+    }
+
+    if (resp.ok) {
+      const release = await resp.json();
+      // 保存 ETag 和数据到缓存
+      (release as any).etag = resp.headers.get('etag');
+      setCachedRelease(release);
+      latestRelease.value = release;
+      checking.value = false;
+      processReleaseInfo(autoCheck, force, false);
+    } else if (resp.status === 403) {
+      // 速率限制
+      const resetTime = resp.headers.get('X-RateLimit-Reset');
+      if (resetTime) {
+        const reset = parseInt(resetTime, 10) * 1000;
+        const now = Date.now();
+        const seconds = Math.ceil((reset - now) / 1000);
+        setRateLimitReset(Math.max(seconds, 60));
+      } else {
+        // 没有 Reset 头，默认 1 小时
+        setRateLimitReset(3600);
+      }
+
+      // 请求失败，回退到缓存
+      if (cached) {
+        logError(`[App] Rate limited (403), falling back to cache`);
+        latestRelease.value = cached;
+        updateError.value = '(使用缓存信息，API 暂时受限)';
+      } else {
+        updateError.value = 'GitHub API 请求过于频繁，请稍后再试';
+        if (!autoCheck) {
+          updateModalOpen.value = true;
+        } else {
+          logError(`[App] Rate limited (403), no cache available`);
+        }
+      }
+      checking.value = false;
+    } else {
+      // 其他 HTTP 错误
+      updateError.value = `请求 GitHub Release 失败：${resp.status}`;
+
+      // 手动检查失败时回退到缓存
+      if (!autoCheck && cached) {
+        logError(`[App] HTTP ${resp.status}, falling back to cache`);
+        latestRelease.value = cached;
+        updateError.value = `(请求失败 HTTP ${resp.status}，使用缓存信息)`;
+      } else if (!autoCheck) {
+        updateModalOpen.value = true;
+      } else {
+        logError(`[App] Failed to fetch latest release: HTTP ${resp.status}`);
+      }
+      checking.value = false;
+    }
+  } catch (e) {
+    updateError.value = `请求 GitHub Release 失败：${e}`;
+
+    // 请求异常，回退到缓存
+    const cached = getCachedRelease();
+    if (!autoCheck && cached) {
+      logError(`[App] Request error, falling back to cache`);
+      latestRelease.value = cached;
+      updateError.value = `(请求出错，使用缓存信息)`;
+    } else if (!autoCheck) {
+      updateModalOpen.value = true;
+    } else {
+      logError(`[App] Failed to fetch latest release: ${e}`);
+    }
+    checking.value = false;
+  }
+}
+
+/**
+ * 处理获取到的 release 信息
+ */
+function processReleaseInfo(
+  autoCheck = false,
+  force = false,
+  fromError = false
+) {
+  if (!latestRelease.value) return;
+
+  const normalizedLocal = normalizeVersion(localVersion.value);
+  const normalizedLatest = normalizeVersion(latestRelease.value.tag_name);
+  const dismissedVersion = getDismissedVersion();
+
+  // 根据是否是强制检查或手动检查决定是否显示弹窗
+  const shouldShowModal =
+    // force 为 true 时无论如何都显示弹窗
+    force ||
+    // 版本不一致且该版本未被用户忽略，则显示弹窗
+    (normalizedLocal !== normalizedLatest &&
+      normalizedLatest !== dismissedVersion) ||
+    // 手动检查时版本相同也要显示结果（只在非错误情况下且为手动检查）
+    (!fromError && !autoCheck && normalizedLocal === normalizedLatest);
+
+  if (shouldShowModal) {
+    updateModalOpen.value = true;
+    // 检查该版本是否已被忽略，若已忽略则 checkbox 为选中状态
+    if (normalizedLatest === dismissedVersion) {
+      dismissCurrentVersion.value = true;
+    }
+  }
+}
+
+/**
+ * 手动触发版本检查（总是显示弹窗）
+ */
+function manualCheckForUpdates() {
+  checkForUpdates(false, true);
+}
+
+/**
+ * 关闭弹窗
+ */
+function closeUpdateModal() {
+  if (dismissCurrentVersion.value && latestRelease.value) {
+    // 用户勾选了"不再提醒此版本"，保存到 localStorage
+    const normalizedVersion = normalizeVersion(latestRelease.value.tag_name);
+    dismissVersion(normalizedVersion);
+  } else if (!dismissCurrentVersion.value && latestRelease.value) {
+    // 用户取消了勾选，清除之前的忽略记录
+    try {
+      localStorage.removeItem(STORAGE_KEY_DISMISSED_VERSION);
+    } catch (e) {
+      logError(`Failed to clear dismissed version: ${e}`);
+    }
+  }
+  updateModalOpen.value = false;
+  dismissCurrentVersion.value = false;
+}
+
+function openReleasePage() {
+  if (!latestRelease.value) return;
+  const url =
+    latestRelease.value.html_url ||
+    `https://github.com/${'plumed-nebula'}/${'yana'}/releases`;
+  openUrl(url);
+}
+
+/**
+ * 规范化版本号，去掉前缀的 'v'
+ */
+function normalizeVersion(version: string | null | undefined): string {
+  if (!version) return '未知';
+  return version.startsWith('v') ? version.substring(1) : version;
+}
+
+// ========== End of version check state and logic ==========
+
 onMounted(() => {
   void determinePlatform();
   void imageHostStore.ensureLoaded();
+  // 自动检查版本
+  void checkForUpdates(true);
+});
+
+// 当弹窗打开时禁用滚动条，关闭时恢复
+watch(
+  () => updateModalOpen.value,
+  (isOpen) => {
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+  }
+);
+
+// 卸载时清理滚动条状态
+onBeforeUnmount(() => {
+  document.body.style.overflow = '';
 });
 
 watch(
@@ -121,6 +480,11 @@ const viewProps = computed(() => {
       onSelectPlugin,
     };
   }
+  if (current.value === 'settings') {
+    return {
+      onCheckUpdateClick: manualCheckForUpdates,
+    };
+  }
   return {};
 });
 </script>
@@ -141,6 +505,71 @@ const viewProps = computed(() => {
         <component :is="activeComponent" v-bind="viewProps" />
       </section>
     </div>
+
+    <!-- Update modal (teleported-style overlay) -->
+    <teleport to="body">
+      <div
+        v-if="updateModalOpen"
+        class="confirm-overlay"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="confirm-dialog">
+          <h3>检查更新</h3>
+          <div class="message">
+            <p v-if="checking">正在检查更新…</p>
+            <p v-else>
+              本地版本： <strong>{{ normalizeVersion(localVersion) }}</strong>
+            </p>
+            <p v-if="latestRelease">
+              最新 Release：
+              <strong>{{ normalizeVersion(latestRelease.tag_name) }}</strong>
+              <br />发布日期：<span>{{ latestRelease.published_at }}</span>
+            </p>
+            <p v-if="!latestRelease && !checking && !updateError">
+              未能获取到最新版信息。
+            </p>
+            <p v-if="updateError" class="sub">错误：{{ updateError }}</p>
+            <p
+              class="sub"
+              style="margin-top: 12px; color: var(--text-secondary)"
+            >
+              若需查看完整 Release 页面，请点击下方"打开 Release 页面"。
+            </p>
+            <label
+              style="
+                margin-top: 16px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+              "
+            >
+              <input
+                type="checkbox"
+                v-model="dismissCurrentVersion"
+                style="cursor: pointer"
+              />
+              <span style="font-size: 14px; color: var(--text-secondary)"
+                >不再提醒此版本</span
+              >
+            </label>
+          </div>
+          <div class="confirm-actions">
+            <button class="ghost" type="button" @click="closeUpdateModal">
+              关闭
+            </button>
+            <button
+              type="button"
+              @click="openReleasePage"
+              :disabled="!latestRelease"
+            >
+              打开 Release 页面
+            </button>
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -174,6 +603,110 @@ const viewProps = computed(() => {
   flex: 1;
   width: 100%;
   display: flex;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 32px;
+  z-index: 1300;
+}
+
+.confirm-overlay::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  z-index: -1;
+}
+
+.confirm-dialog {
+  width: min(520px, 90vw);
+  background: var(--surface-panel);
+  border-radius: 20px;
+  padding: 28px 24px;
+  border: 1px solid var(--surface-border);
+  box-shadow: 0 24px 60px rgba(5, 8, 18, 0.42);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+}
+
+.confirm-dialog h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.confirm-dialog .message {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.confirm-dialog .message strong {
+  font-weight: 700;
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.confirm-dialog .sub {
+  margin: -8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  opacity: 0.8;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.confirm-actions .ghost,
+.confirm-actions button {
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, opacity 0.2s ease,
+    border-color 0.2s ease;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
+}
+
+.confirm-actions .ghost {
+  color: var(--text-secondary);
+}
+
+.confirm-actions button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.confirm-actions .ghost:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  transform: translateY(-1px);
+}
+
+.confirm-actions button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
 }
 </style>
 
