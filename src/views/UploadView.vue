@@ -621,7 +621,6 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
     : `准备上传（共 ${paths.length} 张）…`;
 
   try {
-    const forceAnimated = useWebpMode && globalSettings.forceAnimatedWebp.value;
     const pngMode = globalSettings.pngCompressionMode.value;
     const pngOptimization = globalSettings.pngOptimization.value;
     const quality = globalSettings.quality.value;
@@ -636,7 +635,6 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
           paths,
           quality,
           mode: useWebpMode ? 'webp' : 'original_format',
-          forceAnimatedWebp: forceAnimated,
           pngMode,
           pngOptimization,
         });

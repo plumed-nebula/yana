@@ -23,12 +23,6 @@ const currentModeLabel = computed(() =>
   settings.convertToWebp.value ? '输出 WebP' : '保留原格式'
 );
 
-const animatedStrategy = computed(() =>
-  settings.forceAnimatedWebp.value
-    ? '动图会尝试转为 WebP（可能退化为首帧静态）'
-    : '动图保持原格式，GIF 会重新压缩'
-);
-
 const qualityLabel = computed(() => `${settings.quality.value} / 100`);
 
 const pngStrategy = computed(() => {
@@ -123,8 +117,6 @@ async function handleTest() {
     const [target] = paths;
     mutateLatest('info', `已选择：${target}`);
 
-    const forceAnimated =
-      settings.forceAnimatedWebp.value && settings.convertToWebp.value;
     const mode = settings.convertToWebp.value ? 'webp' : 'original_format';
 
     mutateLatest('info', '正在压缩…');
@@ -132,7 +124,6 @@ async function handleTest() {
       paths,
       quality: settings.quality.value,
       mode,
-      forceAnimatedWebp: forceAnimated,
       pngMode: settings.pngCompressionMode.value,
       pngOptimization: settings.pngOptimization.value,
     });
@@ -194,10 +185,6 @@ async function handleTest() {
         <div class="chip">
           <span class="label">画质</span>
           <span>{{ qualityLabel }}</span>
-        </div>
-        <div class="chip">
-          <span class="label">动画策略</span>
-          <span>{{ animatedStrategy }}</span>
         </div>
         <div class="chip" v-if="!settings.convertToWebp.value">
           <span class="label">PNG 策略</span>

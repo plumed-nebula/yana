@@ -12,10 +12,6 @@ import { clearPluginCache } from '../plugins/registry';
 
 const settings = useSettingsStore();
 
-const convertToWebpEnabled = computed(
-  () => settings.convertToWebp.value === true
-);
-
 const pngModeDescription = computed(() => {
   if (settings.convertToWebp.value) {
     return '当目标图床不支持 WebP 时，会按所选策略重新压缩 PNG，以便自动回退。';
@@ -44,12 +40,6 @@ const pngOptions = [
   { value: 'fast', label: '快速（体积略大）' },
 ];
 
-const animatedHint = computed(() =>
-  convertToWebpEnabled.value
-    ? '动图会尝试转为 WebP，可选强制转化。（注意：部分格式会退化为静态首帧）'
-    : '动图默认保持原格式，GIF 会重新压缩。开启“转为 WebP”后可额外选择强制策略。'
-);
-
 const persistenceMessage = computed(() => {
   if (!settings.ready.value) return '正在读取本地配置…';
   if (settings.loading.value) return '同步中…';
@@ -70,7 +60,6 @@ async function openLogDir() {
 function restoreDefaults() {
   settings.quality.value = 80;
   settings.convertToWebp.value = false;
-  settings.forceAnimatedWebp.value = false;
   settings.pngCompressionMode.value = 'lossless';
   settings.pngOptimization.value = 'default';
   settings.enableUploadCompression.value = false;
@@ -541,25 +530,9 @@ onBeforeUnmount(() => {
         <div class="toggle">
           <label>
             <input type="checkbox" v-model="settings.convertToWebp.value" />
-            <span class="title">将静态图统一转为 WebP</span>
+            <span class="title">将图片统一转为 WebP</span>
           </label>
-          <p class="help">
-            开启后 PNG/JPEG 等格式会输出为 WebP，可显著降低体积。
-          </p>
-        </div>
-      </section>
-
-      <section class="field">
-        <div :class="['toggle', { disabled: !convertToWebpEnabled }]">
-          <label>
-            <input
-              type="checkbox"
-              :disabled="!convertToWebpEnabled"
-              v-model="settings.forceAnimatedWebp.value"
-            />
-            <span class="title">动图尝试转为 WebP</span>
-          </label>
-          <p class="help">{{ animatedHint }}</p>
+          <p class="help">开启后支持的格式会输出为 WebP，可显著降低体积。</p>
         </div>
       </section>
 

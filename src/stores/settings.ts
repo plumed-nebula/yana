@@ -8,7 +8,6 @@ type PngOptimizationLevel = 'best' | 'default' | 'fast';
 type PersistedSettings = {
   quality: number;
   convertToWebp: boolean;
-  forceAnimatedWebp: boolean;
   pngCompressionMode: PngCompressionMode;
   pngOptimization: PngOptimizationLevel;
   enableUploadCompression: boolean;
@@ -18,7 +17,6 @@ type PersistedSettings = {
 const DEFAULTS: PersistedSettings = {
   quality: 80,
   convertToWebp: false,
-  forceAnimatedWebp: false,
   pngCompressionMode: 'lossless',
   pngOptimization: 'default',
   enableUploadCompression: false,
@@ -86,9 +84,6 @@ function normalizePayload(
   return {
     quality: sanitizeQuality(payload?.quality ?? DEFAULTS.quality),
     convertToWebp: Boolean(payload?.convertToWebp ?? DEFAULTS.convertToWebp),
-    forceAnimatedWebp: Boolean(
-      payload?.forceAnimatedWebp ?? DEFAULTS.forceAnimatedWebp
-    ),
     pngCompressionMode: sanitizePngMode(
       pngModeFromBackend ?? DEFAULTS.pngCompressionMode
     ),
@@ -178,7 +173,6 @@ function createStore() {
     const payload: PersistedSettings = {
       quality: sanitizeQuality(internalState.quality),
       convertToWebp: internalState.convertToWebp,
-      forceAnimatedWebp: internalState.forceAnimatedWebp,
       pngCompressionMode: sanitizePngMode(internalState.pngCompressionMode),
       pngOptimization: sanitizePngOptimization(internalState.pngOptimization),
       enableUploadCompression: Boolean(internalState.enableUploadCompression),
@@ -221,7 +215,6 @@ function createStore() {
   // 创建所有的 auto-save refs
   const quality = createAutoSaveRef<number>('quality', sanitizeQuality);
   const convertToWebp = createAutoSaveRef<boolean>('convertToWebp');
-  const forceAnimatedWebp = createAutoSaveRef<boolean>('forceAnimatedWebp');
   const pngCompressionMode = createAutoSaveRef<PngCompressionMode>(
     'pngCompressionMode',
     sanitizePngMode
@@ -241,7 +234,6 @@ function createStore() {
   return {
     quality,
     convertToWebp,
-    forceAnimatedWebp,
     pngCompressionMode,
     pngOptimization,
     enableUploadCompression,

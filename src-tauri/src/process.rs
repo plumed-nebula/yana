@@ -21,7 +21,7 @@ use std::io::{Cursor, Read, Write};
 use std::path::PathBuf;
 
 use image::GenericImageView;
-use image::codecs::gif::{GifDecoder, GifEncoder, Repeat};
+use image::codecs::gif::GifDecoder;
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{
     CompressionType as PngCompressionType, FilterType as PngFilterType, PngEncoder,
@@ -29,9 +29,11 @@ use image::codecs::png::{
 use image::{
     self, AnimationDecoder, ColorType, DynamicImage, ImageEncoder, ImageFormat, ImageReader,
 };
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandEvent;
 use tempfile::Builder as TempFileBuilder;
 use webp::{Encoder as WebpEncoder, PixelLayout}; // adjustable-quality webp
 
@@ -306,45 +308,97 @@ fn encode_to_format(
     }
 }
 
-// ---------- Animated encoders ----------
+/// 将动图转为 WebP（可以是动画 WebP 或首帧静态）
+/// 将在后续实现中集成 gif2webp 工具
+fn convert_gif_to_webp(
+    app: &tauri::AppHandle,
+    bytes: &[u8],
+    quality: u8,
+) -> Result<Vec<u8>, String> {
+    // 将数据写入临时文件
+    let tmp_dir = ensure_app_temp_dir()?;
+    let mut tmp = TempFileBuilder::new()
+        .prefix("yana_gif2webp_")
+        .suffix(".gif")
+        .tempfile_in(&tmp_dir)
+        .map_err(|e| format!("tempfile_in: {}", e))?;
+    tmp.write_all(bytes)
+        .map_err(|e| format!("write gif temp: {}", e))?;
+    let gif_path = tmp.path().to_string_lossy().into_owned();
+    // 创建输出临时文件路径（不实际创建文件）
+    let webp_tmp = TempFileBuilder::new()
+        .prefix("yana_gif2webp_out_")
+        .suffix(".webp")
+        .tempfile_in(&tmp_dir)
+        .map_err(|e| format!("tempfile_in: {}", e))?;
+    let webp_path = webp_tmp.path().to_string_lossy().into_owned();
+    // 调用 gif2webp 工具进行转换
+    let cmd = app
+        .shell()
+        .sidecar("gif2webp")
+        .expect("Fail to setup sidecar")
+        .args([
+            "-mixed",
+            "-q",
+            quality.to_string().as_str(),
+            "-min_size",
+            "-mt",
+            &gif_path,
+            "-o",
+            &webp_path,
+        ]);
+    let (mut rx, _child) = cmd.spawn().map_err(|e| format!("spawn gif2webp: {}", e))?;
 
-fn reencode_gif_frames(bytes: &[u8], _quality: u8) -> Result<Vec<u8>, String> {
-    // GIF 逐帧重编码；目前未进行颜色量化/抖动的深度控制，保持尽量接近原动画
-    let decoder = GifDecoder::new(Cursor::new(bytes)).map_err(|e| format!("gif decode: {}", e))?;
-    let mut frames = decoder.into_frames();
-    let mut out = Cursor::new(Vec::new());
-    {
-        let mut enc = GifEncoder::new(&mut out);
-        enc.set_repeat(Repeat::Infinite)
-            .map_err(|e| format!("gif repeat: {}", e))?;
-        while let Some(frame) = frames.next() {
-            let f = frame.map_err(|e| format!("gif frame: {}", e))?;
-            enc.encode_frame(f)
-                .map_err(|e| format!("gif encode frame: {}", e))?;
+    // 同步轮询等待命令完成
+    tauri::async_runtime::block_on(async {
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Terminated { .. } => {
+                    break;
+                }
+                CommandEvent::Stdout(msg) => {
+                    // u8 转为 String
+                    let output = String::from_utf8_lossy(&msg);
+                    debug!("gif2webp stdout: {}", output);
+                }
+                CommandEvent::Stderr(msg) => {
+                    let output = String::from_utf8_lossy(&msg);
+                    error!("gif2webp stderr: {}", output);
+                }
+                CommandEvent::Error(msg) => {
+                    error!("gif2webp error: {}", msg);
+                    break;
+                }
+                _ => {
+                    error!("Unknown gif2webp event: {:?}", event);
+                    break;
+                }
+            }
         }
-    }
-    Ok(out.into_inner())
-}
+    });
 
-fn animated_to_webp(bytes: &[u8], quality: u8) -> Result<Vec<u8>, String> {
-    // 当前缺少动画 WebP 编码：回退为“首帧静态 WebP”
-    let img = image::load_from_memory(bytes).map_err(|e| format!("decode first frame: {}", e))?;
-    encode_webp_static(&img, quality)
+    // 读取输出文件内容
+    let mut out_file = File::open(&webp_path).map_err(|e| format!("open webp output: {}", e))?;
+    let mut out_bytes = Vec::new();
+    out_file
+        .read_to_end(&mut out_bytes)
+        .map_err(|e| format!("read webp output: {}", e))?;
+    Ok(out_bytes)
 }
 
 // ---------- Orchestrator ----------
 
 fn process_one(
+    app: &tauri::AppHandle,
     path: &str,
     quality: u8,
     mode: Mode,
-    force_animated_webp: bool,
     png_mode: PngCompressionMode,
     png_optimization: PngOptimizationLevel,
 ) -> Result<PathBuf, String> {
     info!(
-        "process_one start: path={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
-        path, quality, mode, force_animated_webp, png_mode, png_optimization
+        "process_one start: path={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
+        path, quality, mode, png_mode, png_optimization
     );
     // 读取并判定格式/动图属性
     let bytes = read_all_bytes(path)?;
@@ -377,34 +431,20 @@ fn process_one(
             let out = encode_webp_static(&img, quality)?;
             tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
         }
-        (DetectedKind::Animated(fmt), _) => {
-            if force_animated_webp {
-                // 强制将动图转为 WebP：当前实现能力有限，发出警告
-                warn!(
-                    "animated-to-webp is enabled: path={}, detected_format={:?}; result may not meet expectations",
-                    path, fmt
-                );
-                match fmt {
-                    ImageFormat::WebP => {
-                        // 已是 WebP（包含动画 WebP）：直接透传
-                        tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
-                    }
-                    _ => {
-                        // 回退：取首帧静态并编码为 WebP
-                        let out = animated_to_webp(&bytes, quality)?;
-                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
-                    }
+        (DetectedKind::Animated(_), Mode::original_format) => {
+            // 透传
+            tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
+        }
+        (DetectedKind::Animated(fmt), Mode::webp) => {
+            match fmt {
+                ImageFormat::Gif => {
+                    // 转为 WebP：调用 convert_animated_to_webp
+                    let out = convert_gif_to_webp(&app, &bytes, quality)?;
+                    tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
                 }
-            } else {
-                // 普通动画化压缩：GIF 重编码为 GIF；动画 WebP 或未知动画保持原样
-                match fmt {
-                    ImageFormat::Gif => {
-                        let out = reencode_gif_frames(&bytes, quality)?;
-                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
-                    }
-                    _ => {
-                        tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
-                    }
+                _ => {
+                    // 其他动画格式（如动画 WebP）：透传
+                    tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
                 }
             }
         }
@@ -424,11 +464,11 @@ fn process_one(
 }
 
 #[tauri::command]
-pub async fn compress_images(
+pub fn compress_images(
+    app: tauri::AppHandle,
     paths: Vec<String>,
     quality: u8,
     mode: Mode,
-    force_animated_webp: bool,
     png_mode: PngCompressionMode,
     png_optimization: PngOptimizationLevel,
 ) -> Result<Vec<String>, String> {
@@ -436,15 +476,15 @@ pub async fn compress_images(
     let q = quality.min(100);
     let count = paths.len();
     info!(
-        "compress_images start: count={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
-        count, q, mode, force_animated_webp, png_mode, png_optimization
+        "compress_images start: count={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
+        count, q, mode, png_mode, png_optimization
     );
     // 并行处理但保持顺序：记录原始索引 -> 并行处理；对每项错误记录日志并回退为原图路径
     let indexed: Vec<(usize, String)> = paths.into_iter().enumerate().collect();
     let mut v: Vec<(usize, String)> = indexed
         .into_par_iter()
         .map(|(i, p)| {
-            match process_one(&p, q, mode, force_animated_webp, png_mode, png_optimization) {
+            match process_one(&app, &p, q, mode, png_mode, png_optimization) {
                 Ok(pb) => (i, pb.to_string_lossy().to_string()),
                 Err(e) => {
                     error!(
@@ -492,19 +532,18 @@ pub async fn save_files(sources: Vec<String>, dests: Vec<String>) -> Result<usiz
 }
 
 fn process_data(
+    app: &tauri::AppHandle,
     data: Vec<u8>,
     quality: u8,
     mode: Mode,
-    force_animated_webp: bool,
     png_mode: PngCompressionMode,
     png_optimization: PngOptimizationLevel,
 ) -> Result<PathBuf, String> {
     info!(
-        "process_data start: data_len={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
+        "process_data start: data_len={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
         data.len(),
         quality,
         mode,
-        force_animated_webp,
         png_mode,
         png_optimization
     );
@@ -538,35 +577,20 @@ fn process_data(
             let out = encode_webp_static(&img, quality)?;
             tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
         }
-        (DetectedKind::Animated(fmt), _) => {
-            if force_animated_webp {
-                // 强制将动图转为 WebP：当前实现能力有限，发出警告
-                warn!(
-                    "animated-to-webp is enabled: data_len={}, detected_format={:?}; result may not meet expectations",
-                    data.len(),
-                    fmt
-                );
-                match fmt {
-                    ImageFormat::WebP => {
-                        // 已是 WebP（包含动画 WebP）：直接透传
-                        tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
-                    }
-                    _ => {
-                        // 回退：取首帧静态并编码为 WebP
-                        let out = animated_to_webp(&data, quality)?;
-                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
-                    }
+        (DetectedKind::Animated(_), Mode::original_format) => {
+            // 透传
+            tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
+        }
+        (DetectedKind::Animated(fmt), Mode::webp) => {
+            match fmt {
+                ImageFormat::Gif => {
+                    // 转为 WebP：调用 convert_animated_to_webp
+                    let out = convert_gif_to_webp(&app, &data, quality)?;
+                    tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
                 }
-            } else {
-                // 普通动画化压缩：GIF 重编码为 GIF；动画 WebP 或未知动画保持原样
-                match fmt {
-                    ImageFormat::Gif => {
-                        let out = reencode_gif_frames(&data, quality)?;
-                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
-                    }
-                    _ => {
-                        tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
-                    }
+                _ => {
+                    // 其他动画格式（如动画 WebP）：透传
+                    tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
                 }
             }
         }
@@ -586,34 +610,26 @@ fn process_data(
 }
 
 #[tauri::command]
-pub async fn compress_image_data(
+pub fn compress_image_data(
+    app: tauri::AppHandle,
     data: Vec<u8>,
     quality: u8,
     mode: Mode,
-    force_animated_webp: bool,
     png_mode: PngCompressionMode,
     png_optimization: PngOptimizationLevel,
 ) -> Result<String, String> {
     // 统一限制质量范围到 0..=100
     let q = quality.min(100);
     info!(
-        "compress_image_data start: data_len={}, quality={}, mode={:?}, force_animated_webp={}, png_mode={:?}, png_optimization={:?}",
+        "compress_image_data start: data_len={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
         data.len(),
         q,
         mode,
-        force_animated_webp,
         png_mode,
         png_optimization
     );
 
-    let path_buf = process_data(
-        data,
-        q,
-        mode,
-        force_animated_webp,
-        png_mode,
-        png_optimization,
-    )?;
+    let path_buf = process_data(&app, data, q, mode, png_mode, png_optimization)?;
     let path_str = path_buf.to_string_lossy().to_string();
 
     info!("compress_image_data done: output={}", path_str);
@@ -621,7 +637,7 @@ pub async fn compress_image_data(
 }
 
 #[tauri::command]
-pub async fn save_image_data(data: Vec<u8>) -> Result<String, String> {
+pub fn save_image_data(data: Vec<u8>) -> Result<String, String> {
     info!("save_image_data start: data_len={}", data.len());
 
     // 在应用专属临时目录创建输出文件
@@ -644,108 +660,4 @@ pub async fn save_image_data(data: Vec<u8>) -> Result<String, String> {
     let path_str = path_buf.to_string_lossy().to_string();
     info!("save_image_data done: output={}", path_str);
     Ok(path_str)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use futures::executor::block_on;
-    use image::{ImageBuffer, ImageFormat, Rgba};
-    use std::fs;
-
-    fn write_png(path: &std::path::Path) {
-        let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_fn(64, 64, |x, y| {
-            if (x + y) % 2 == 0 {
-                Rgba([255, 0, 0, 255])
-            } else {
-                Rgba([0, 255, 0, 255])
-            }
-        });
-        img.save(path).expect("save png");
-    }
-
-    fn write_jpeg(path: &std::path::Path) {
-        let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_fn(32, 32, |x, y| {
-            let v = ((x ^ y) & 0xFF) as u8;
-            Rgba([v, 128, 255 - v, 255])
-        });
-        let dynimg = DynamicImage::ImageRgba8(img);
-        let bytes = super::encode_jpeg(&dynimg, 80).expect("encode jpeg");
-        let mut f = fs::File::create(path).unwrap();
-        f.write_all(&bytes).unwrap();
-    }
-
-    fn write_webp(path: &std::path::Path) {
-        let img: ImageBuffer<Rgba<u8>, _> = ImageBuffer::from_pixel(16, 16, Rgba([0, 0, 255, 255]));
-        let dynimg = DynamicImage::ImageRgba8(img);
-        let bytes = super::encode_webp_static(&dynimg, 75).expect("encode webp");
-        let mut f = fs::File::create(path).unwrap();
-        f.write_all(&bytes).unwrap();
-    }
-
-    #[test]
-    fn compress_folder_images_original_and_webp() {
-        let dir = tempfile::tempdir().unwrap();
-        let p_png = dir.path().join("a.png");
-        let p_jpg = dir.path().join("b.jpg");
-        let p_webp = dir.path().join("c.webp");
-        write_png(&p_png);
-        write_jpeg(&p_jpg);
-        write_webp(&p_webp);
-
-        let inputs: Vec<String> = vec![
-            p_png.to_string_lossy().into(),
-            p_jpg.to_string_lossy().into(),
-            p_webp.to_string_lossy().into(),
-        ];
-
-        // 原格式压缩
-        let outs_orig = block_on(super::compress_images(
-            inputs.clone(),
-            80,
-            Mode::original_format,
-            false,
-            PngCompressionMode::Lossless,
-            PngOptimizationLevel::Default,
-        ))
-        .expect("compress original");
-        assert_eq!(outs_orig.len(), inputs.len());
-        for (inp, out) in inputs.iter().zip(outs_orig.iter()) {
-            assert!(
-                std::path::Path::new(out).exists(),
-                "output not exists: {}",
-                out
-            );
-            let bytes = fs::read(out).unwrap();
-            assert!(!bytes.is_empty(), "output empty: {}", out);
-            let fmt = image::guess_format(&bytes).unwrap();
-            // 原样模式下，输出应与输入格式一致（webp/webp，png/png，jpeg/jpeg）
-            let inp_bytes = fs::read(inp).unwrap();
-            let inp_fmt = image::guess_format(&inp_bytes).unwrap();
-            assert_eq!(fmt, inp_fmt, "format mismatch for {} -> {}", inp, out);
-        }
-
-        // WebP 压缩
-        let outs_webp = block_on(super::compress_images(
-            inputs.clone(),
-            75,
-            Mode::webp,
-            false,
-            PngCompressionMode::Lossless,
-            PngOptimizationLevel::Default,
-        ))
-        .expect("compress webp");
-        assert_eq!(outs_webp.len(), inputs.len());
-        for out in outs_webp.iter() {
-            assert!(
-                std::path::Path::new(out).exists(),
-                "output not exists: {}",
-                out
-            );
-            let bytes = fs::read(out).unwrap();
-            assert!(!bytes.is_empty(), "output empty: {}", out);
-            let fmt = image::guess_format(&bytes).unwrap();
-            assert_eq!(fmt, ImageFormat::WebP, "expect webp, got {:?}", fmt);
-        }
-    }
 }

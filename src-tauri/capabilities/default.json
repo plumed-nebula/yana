@@ -25,7 +25,22 @@
     "fs:read-files",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://github.com/plumed-nebula/yana/releases" }]
+      "allow": [
+        {
+          "url": "https://github.com/plumed-nebula/yana/releases"
+        }
+      ]
+    },
+    "shell:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "sidecar": true,
+          "name": "bin\\gif2webp",
+          "args": true
+        }
+      ]
     }
   ]
 }

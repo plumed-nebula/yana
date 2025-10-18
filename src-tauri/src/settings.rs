@@ -14,7 +14,6 @@ const SETTINGS_FILE: &str = "settings.json";
 pub struct SettingsPayload {
     pub quality: u8,
     pub convert_to_webp: bool,
-    pub force_animated_webp: bool,
     #[serde(default)]
     #[serde(alias = "pngMode")]
     pub png_compression_mode: PngCompressionMode,
@@ -31,7 +30,6 @@ impl Default for SettingsPayload {
         Self {
             quality: 80,
             convert_to_webp: false,
-            force_animated_webp: false,
             png_compression_mode: PngCompressionMode::default(),
             png_optimization: PngOptimizationLevel::default(),
             enable_upload_compression: false,
@@ -45,7 +43,6 @@ impl SettingsPayload {
         Self {
             quality: self.quality.min(100),
             convert_to_webp: self.convert_to_webp,
-            force_animated_webp: self.force_animated_webp,
             png_compression_mode: self.png_compression_mode,
             png_optimization: self.png_optimization,
             enable_upload_compression: self.enable_upload_compression,
@@ -159,7 +156,6 @@ mod tests {
         let settings = SettingsPayload {
             quality: 75,
             convert_to_webp: true,
-            force_animated_webp: false,
             png_compression_mode: PngCompressionMode::Lossless,
             png_optimization: PngOptimizationLevel::Default,
             enable_upload_compression: true,
@@ -182,7 +178,6 @@ mod tests {
         let deserialized: SettingsPayload = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.quality, 75);
         assert_eq!(deserialized.convert_to_webp, true);
-        assert_eq!(deserialized.force_animated_webp, false);
         assert_eq!(
             deserialized.png_compression_mode,
             PngCompressionMode::Lossless
