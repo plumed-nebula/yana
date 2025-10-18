@@ -15,6 +15,7 @@ import {
 } from '@tauri-apps/plugin-log';
 import { useImageHostStore } from '../stores/imageHosts';
 import { useSettingsStore } from '../stores/settings';
+import { retryAsync } from '../utils/retry';
 
 const keyword = ref('');
 const selectedHost = ref('');
@@ -360,9 +361,15 @@ async function confirmDeletion() {
         try {
           const plugin = imageHostStore.getPluginById(target.host);
           if (plugin && target.delete_marker) {
-            const res = await plugin.remove(
-              target.delete_marker,
-              imageHostStore.runtime
+            const deleteMarker = target.delete_marker;
+            const res = await retryAsync(
+              async () => {
+                return await plugin.remove(
+                  deleteMarker,
+                  imageHostStore.runtime
+                );
+              },
+              { maxRetries: 1 }
             );
             if (!res?.success) {
               void logWarn(
@@ -414,9 +421,14 @@ async function confirmDeletion() {
     );
   } else {
     try {
-      const result = await plugin.remove(
-        target.delete_marker,
-        imageHostStore.runtime
+      const result = await retryAsync(
+        async () => {
+          return await plugin.remove(
+            target.delete_marker,
+            imageHostStore.runtime
+          );
+        },
+        { maxRetries: 1 }
       );
       if (!result?.success) {
         const message = result?.message ?? '未知错误';

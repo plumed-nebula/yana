@@ -17,6 +17,7 @@ import type { PluginUploadResult } from '../types/imageHostPlugin';
 import { insertGalleryItem } from '../types/gallery';
 import { ClipboardCopy } from 'lucide-vue-next';
 import GlobalSelect from '../components/GlobalSelect.vue';
+import { retryAsync } from '../utils/retry';
 
 type FormatKey = 'link' | 'html' | 'bbcode' | 'markdown';
 
@@ -699,11 +700,16 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
           await logInfo(
             `[upload] 使用插件 ${plugin.id} 上传文件 ${entry.uploadPath}`
           );
-          const result = await plugin.upload(
-            entry.uploadPath,
-            entry.uploadFileName,
-            payload,
-            store.runtime
+          const result = await retryAsync(
+            async () => {
+              return await plugin.upload(
+                entry.uploadPath,
+                entry.uploadFileName,
+                payload,
+                store.runtime
+              );
+            },
+            { maxRetries: 1 }
           );
           await logInfo(
             `[upload] 插件 ${plugin.id} 上传完成，访问链接 ${result.url}`
