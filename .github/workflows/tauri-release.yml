@@ -43,21 +43,13 @@ jobs:
 
       - name: Create GitHub Release
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: actions/create-release@v1
         with:
           tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          body_path: UPDATE.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: List bundle output (debug)
-        shell: powershell
-        run: |
-          Write-Host "Listing src-tauri/target/release/bundle (if exists)"
-          if (Test-Path -Path 'src-tauri/target/release/bundle') {
-            Get-ChildItem -Path 'src-tauri/target/release/bundle' -Recurse -File | ForEach-Object { Write-Host $_.FullName }
-          } else {
-            Write-Host 'bundle directory not found'
-          }
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v1
