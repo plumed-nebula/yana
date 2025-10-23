@@ -7,9 +7,13 @@ const props = defineProps<{
   item: GalleryItem;
   showSelection?: boolean;
   selectedIndex?: number | null;
+  isDragging?: boolean;
+  batchMode?: boolean;
 }>();
 
-const { item, showSelection, selectedIndex } = toRefs(props as any);
+const { item, showSelection, selectedIndex, isDragging, batchMode } = toRefs(
+  props as any
+);
 
 const displayName = computed(() => item.value.file_name ?? item.value.url);
 
@@ -31,6 +35,9 @@ const emit = defineEmits<{
 }>();
 
 function handlePreview(e?: Event) {
+  // 如果正在进行 Ctrl 拖拽，不触发预览
+  if (isDragging?.value) return;
+
   try {
     // only inspect for badge when this is a MouseEvent (keyboard events shouldn't check)
     if (e instanceof MouseEvent) {
@@ -47,10 +54,14 @@ function handlePreview(e?: Event) {
 }
 
 function handleCopy() {
+  // 批量模式下禁用复制
+  if (batchMode?.value) return;
   emit('copy', item.value);
 }
 
 function handleDelete() {
+  // 批量模式下禁用删除
+  if (batchMode?.value) return;
   emit('delete', item.value);
 }
 
@@ -89,6 +100,7 @@ const imageSrc = computed(() => {
         <span v-else class="dot-inner"></span>
       </div>
       <button
+        v-if="!batchMode"
         type="button"
         class="icon-btn danger delete-btn"
         @click.stop="handleDelete"
@@ -98,7 +110,7 @@ const imageSrc = computed(() => {
         <Trash2 :size="18" />
       </button>
     </div>
-    <figcaption class="card-overlay">
+    <figcaption v-if="!batchMode" class="card-overlay">
       <div class="overlay-content">
         <div class="meta">
           <span class="name" :title="displayName">{{ displayName }}</span>

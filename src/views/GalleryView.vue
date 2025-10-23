@@ -2,6 +2,7 @@
 import { onMounted, ref, computed, onBeforeUnmount, watch } from 'vue';
 import GlobalSelect from '../components/GlobalSelect.vue';
 import GalleryItemCard from '../components/GalleryItemCard.vue';
+import { vRegisterCard } from '../directives/vRegisterCard';
 import type { GalleryItem, GalleryQuery } from '../types/gallery';
 import {
   listGalleryHosts,
@@ -15,7 +16,11 @@ import {
 } from '@tauri-apps/plugin-log';
 import { useImageHostStore } from '../stores/imageHosts';
 import { useSettingsStore } from '../stores/settings';
+import { useBatchSelectStore } from '../stores/batchSelect';
 import { retryAsync } from '../utils/retry';
+
+// ========== 使用 Pinia Store ==========
+const batchSelectStore = useBatchSelectStore();
 
 const keyword = ref('');
 const selectedHost = ref('');
@@ -64,6 +69,7 @@ const copyFormatOptions: Array<{
   { value: 'markdown', label: 'Markdown' },
   { value: 'bbcode', label: 'BBCode' },
 ];
+
 // persist copyFormat changes to localStorage so UploadView can share the same setting
 watch(
   () => copyFormat.value,
@@ -76,49 +82,121 @@ watch(
     }
   }
 );
+
 // options for host select
 const hostOptions = computed(() =>
   hosts.value.map((h) => ({ value: h, label: h }))
 );
 
-// 批量选择模式状态
-const batchMode = ref(false);
-// 存储被选中的 item.id，按选择顺序保存
-const selectedOrder = ref<number[]>([]);
+// ========== 拖拽相关 ==========
 
+/** 拖拽起始坐标 */
+let dragStartX = 0;
+let dragStartY = 0;
+
+/**
+ * 自定义 throttle 函数用于优化 mousemove 事件处理
+ */
+function createThrottle(fn: Function, interval: number) {
+  let lastTime = 0;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  return function throttled(...args: any[]) {
+    const now = Date.now();
+    const remaining = interval - (now - lastTime);
+
+    if (remaining <= 0) {
+      lastTime = now;
+      fn.apply(null, args);
+    } else if (!timeoutId) {
+      timeoutId = setTimeout(() => {
+        lastTime = Date.now();
+        timeoutId = null;
+        fn.apply(null, args);
+      }, remaining);
+    }
+  };
+}
+
+/**
+ * 处理卡片按下事件，开始拖拽
+ */
+function handleCardMouseDown(event: MouseEvent, itemId: number) {
+  if (!batchSelectStore.batchMode) return;
+  if (!event.ctrlKey || event.button !== 0) return;
+
+  event.preventDefault();
+  dragStartX = event.clientX;
+  dragStartY = event.clientY;
+
+  batchSelectStore.startCtrlDrag(itemId);
+}
+
+/**
+ * 处理卡片点击事件（Ctrl+Click）
+ */
+function handleCardClick(event: MouseEvent, itemId: number) {
+  if (!batchSelectStore.batchMode) return;
+  if (!event.ctrlKey) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  batchSelectStore.toggleSelectItem(itemId);
+}
+
+/**
+ * 处理文档鼠标移动事件
+ * 使用矩形相交检测找到被拖拽覆盖的卡片
+ */
+function handleDocumentMouseMove(event: MouseEvent) {
+  if (!batchSelectStore.isCtrlDragging) return;
+
+  // 使用 Store 方法计算与拖拽矩形相交的所有卡片
+  const intersectingCardIds = batchSelectStore.getIntersectingCards(
+    dragStartX,
+    dragStartY,
+    event.clientX,
+    event.clientY
+  );
+
+  // 批量选择这些卡片
+  batchSelectStore.selectMultiple(intersectingCardIds);
+}
+
+// 创建节流版本的 mousemove 处理（16ms = ~60fps）
+const handleDocumentMouseMoveThrottled = createThrottle(
+  handleDocumentMouseMove,
+  16
+);
+
+/**
+ * 处理文档鼠标松开事件
+ */
+function handleDocumentMouseUp() {
+  if (!batchSelectStore.isCtrlDragging) return;
+  batchSelectStore.endCtrlDrag();
+}
+
+/**
+ * 切换批量模式
+ */
 function toggleBatchMode() {
-  batchMode.value = !batchMode.value;
-  if (!batchMode.value) {
-    // 退出批量模式时清空选择
-    selectedOrder.value = [];
-  }
+  batchSelectStore.toggleBatchMode();
 }
 
-function isSelected(id: number) {
-  return selectedOrder.value.indexOf(id) !== -1;
-}
-
-function selectedIndex(id: number) {
-  const idx = selectedOrder.value.indexOf(id);
-  return idx === -1 ? -1 : idx + 1; // 返回 1-based 序号
-}
-
-function toggleSelectItem(id: number) {
-  const idx = selectedOrder.value.indexOf(id);
-  if (idx === -1) {
-    selectedOrder.value.push(id);
-  } else {
-    // 取消选择：保留选择顺序的其余项
-    selectedOrder.value.splice(idx, 1);
-  }
-}
-
+/**
+ * 清空选择
+ */
 function clearBatchSelection() {
-  selectedOrder.value = [];
+  batchSelectStore.clearSelection();
 }
 
+/**
+ * 导出选中项的链接
+ */
 async function exportLinksOfSelection() {
-  const selectedItems = selectedOrder.value
+  const selectedIds = batchSelectStore.getSelectedIds();
+  const selectedItems = selectedIds
     .map((id) => items.value.find((it) => it.id === id))
     .filter(Boolean) as typeof items.value;
   const text = selectedItems.map((it) => buildCopyText(it)).join('\n');
@@ -133,13 +211,15 @@ async function exportLinksOfSelection() {
   }
 }
 
+/**
+ * 删除选中的项
+ */
 async function deleteSelectedItems() {
-  // trigger batch delete confirmation instead of immediate delete
-  if (!selectedOrder.value.length) return;
-  // set confirmTarget as a batch request containing ids and a short message
+  const selectedIds = batchSelectStore.getSelectedIds();
+  if (!selectedIds.length) return;
   confirmTarget.value = {
-    batchIds: selectedOrder.value.slice(),
-    message: `确定要删除选中的 ${selectedOrder.value.length} 张图片吗？`,
+    batchIds: selectedIds,
+    message: `确定要删除选中的 ${selectedIds.length} 张图片吗？`,
   };
 }
 
@@ -398,8 +478,8 @@ async function confirmDeletion() {
     await Promise.all(workers);
     showToast(`已删除 ${deleted} 张图片`, 'success');
     // 清空选择并退出批量模式
-    selectedOrder.value = [];
-    batchMode.value = false;
+    batchSelectStore.clearSelection();
+    batchSelectStore.batchMode = false;
     closeConfirm();
     deleteLoading.value = false;
     return;
@@ -473,6 +553,12 @@ async function confirmDeletion() {
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown);
+  // 使用节流版本的 mousemove 处理以改进性能
+  document.addEventListener(
+    'mousemove',
+    handleDocumentMouseMoveThrottled as EventListener
+  );
+  document.addEventListener('mouseup', handleDocumentMouseUp);
   await loadHosts();
   await fetchItems();
   if (advancedActive.value) {
@@ -482,6 +568,11 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown);
+  document.removeEventListener(
+    'mousemove',
+    handleDocumentMouseMoveThrottled as EventListener
+  );
+  document.removeEventListener('mouseup', handleDocumentMouseUp);
   document.body.style.overflow = '';
   if (toastTimer) {
     clearTimeout(toastTimer);
@@ -617,10 +708,10 @@ watch(
           <button
             type="button"
             class="ghost batch-toggle-btn"
-            :class="{ active: batchMode }"
+            :class="{ active: batchSelectStore.batchMode }"
             @click="toggleBatchMode"
           >
-            {{ batchMode ? '退出批量选择' : '批量选择' }}
+            {{ batchSelectStore.batchMode ? '退出批量选择' : '批量选择' }}
           </button>
         </header>
 
@@ -637,41 +728,58 @@ watch(
         <div v-else class="grid">
           <div
             v-for="item in items"
+            v-register-card="item.id"
             :key="item.id"
             class="card-wrapper"
             :class="{
-              'batch-active': batchMode,
-              selected: isSelected(item.id),
+              'batch-active': batchSelectStore.batchMode,
+              'is-dragging': batchSelectStore.isCtrlDragging,
+              selected: batchSelectStore.isSelected(item.id),
             }"
-            @click.stop="batchMode ? toggleSelectItem(item.id) : null"
+            :data-item-id="item.id"
+            @click.stop="
+              batchSelectStore.batchMode
+                ? batchSelectStore.toggleSelectItem(item.id)
+                : null
+            "
+            @mousedown.stop="(e: any) => handleCardMouseDown(e, item.id)"
+            @click.ctrl.stop="(e: any) => handleCardClick(e, item.id)"
           >
             <GalleryItemCard
               :item="item"
-              :showSelection="batchMode"
-              :selectedIndex="batchMode ? selectedIndex(item.id) : null"
+              :showSelection="batchSelectStore.batchMode"
+              :selectedIndex="
+                batchSelectStore.batchMode
+                  ? batchSelectStore.selectedIndex(item.id)
+                  : null
+              "
+              :isDragging="batchSelectStore.isCtrlDragging"
+              :batchMode="batchSelectStore.batchMode"
               @preview="openPreview"
               @copy="handleCopy"
               @delete="requestDelete"
-              @toggle-select="() => toggleSelectItem(item.id)"
+              @toggle-select="() => batchSelectStore.toggleSelectItem(item.id)"
             />
           </div>
         </div>
         <!-- 批量操作底部横条 -->
-        <div v-if="batchMode" class="batch-action-bar">
+        <div v-if="batchSelectStore.batchMode" class="batch-action-bar">
           <div class="bar-content">
-            <div class="left">已选 {{ selectedOrder.length }} 张</div>
+            <div class="left">
+              已选 {{ batchSelectStore.selectionCount }} 张
+            </div>
             <div class="center">
               <button
                 class="ghost"
                 @click="exportLinksOfSelection"
-                :disabled="!selectedOrder.length"
+                :disabled="!batchSelectStore.selectionCount"
               >
                 导出链接
               </button>
               <button
                 class="danger"
                 @click="deleteSelectedItems"
-                :disabled="!selectedOrder.length"
+                :disabled="!batchSelectStore.selectionCount"
               >
                 删除
               </button>
@@ -1023,6 +1131,13 @@ watch(
 .card-wrapper {
   position: relative;
   cursor: pointer;
+  /* CSS containment: 隔离该元素的渲染，提高性能（不包含 layout 以保持 border-radius） */
+  contain: paint style;
+  /* will-change: 提示浏览器该元素将变化 */
+  will-change: transform;
+  /* 确保卡片下部圆角显示 */
+  border-radius: 18px;
+  overflow: hidden;
 }
 .card-wrapper .selection-badge {
   position: absolute;
@@ -1050,6 +1165,23 @@ watch(
   transform: translateY(-4px);
   border-radius: 12px;
   outline: 0;
+}
+
+/* 拖拽中禁用所有过渡动画以改进性能 */
+.card-wrapper.is-dragging {
+  pointer-events: none;
+}
+.card-wrapper.is-dragging :deep(.card) {
+  transition: none !important;
+}
+
+/* 批量模式下禁用 hover 动画，避免鼠标悬停时的视觉干扰 */
+.card-wrapper.batch-active :deep(.card) {
+  transition: none !important;
+}
+.card-wrapper.batch-active :deep(.card):hover {
+  transform: none !important;
+  box-shadow: var(--shadow-soft) !important;
 }
 
 /* 底部批量操作条：居中圆角半透明矩形，主题自适应 */
