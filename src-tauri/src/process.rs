@@ -65,12 +65,17 @@ fn cleanup_app_temp_dir_internal() -> Result<(), String> {
 
 #[tauri::command]
 pub async fn clean_app_temp_dir() -> Result<(), String> {
-    info!("clean_app_temp_dir start");
-    cleanup_app_temp_dir_internal()?;
-    // recreate empty dir so subsequent tempfile_in calls succeed
-    ensure_app_temp_dir()?;
-    info!("clean_app_temp_dir done");
-    Ok(())
+    // 将文件系统操作委托给 tokio blocking 线程
+    tokio::task::spawn_blocking(move || {
+        info!("clean_app_temp_dir start");
+        cleanup_app_temp_dir_internal()?;
+        // recreate empty dir so subsequent tempfile_in calls succeed
+        ensure_app_temp_dir()?;
+        info!("clean_app_temp_dir done");
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking error: {}", e))?
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -464,7 +469,7 @@ fn process_one(
 }
 
 #[tauri::command]
-pub fn compress_images(
+pub async fn compress_images(
     app: tauri::AppHandle,
     paths: Vec<String>,
     quality: u8,
@@ -472,36 +477,41 @@ pub fn compress_images(
     png_mode: PngCompressionMode,
     png_optimization: PngOptimizationLevel,
 ) -> Result<Vec<String>, String> {
-    // 统一限制质量范围到 0..=100
-    let q = quality.min(100);
-    let count = paths.len();
-    info!(
-        "compress_images start: count={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
-        count, q, mode, png_mode, png_optimization
-    );
-    // 并行处理但保持顺序：记录原始索引 -> 并行处理；对每项错误记录日志并回退为原图路径
-    let indexed: Vec<(usize, String)> = paths.into_iter().enumerate().collect();
-    let mut v: Vec<(usize, String)> = indexed
-        .into_par_iter()
-        .map(|(i, p)| {
-            match process_one(&app, &p, q, mode, png_mode, png_optimization) {
-                Ok(pb) => (i, pb.to_string_lossy().to_string()),
-                Err(e) => {
-                    error!(
-                        "compress failed, fallback to original path: index={}, path={}, error={}",
-                        i, p, e
-                    );
-                    // 回退：返回原图路径，保证顺序与长度不变
-                    (i, p)
+    // 将 CPU 密集工作委托给 tokio blocking 线程
+    tokio::task::spawn_blocking(move || {
+        // 统一限制质量范围到 0..=100
+        let q = quality.min(100);
+        let count = paths.len();
+        info!(
+            "compress_images start: count={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
+            count, q, mode, png_mode, png_optimization
+        );
+        // 并行处理但保持顺序：记录原始索引 -> 并行处理；对每项错误记录日志并回退为原图路径
+        let indexed: Vec<(usize, String)> = paths.into_iter().enumerate().collect();
+        let mut v: Vec<(usize, String)> = indexed
+            .into_par_iter()
+            .map(|(i, p)| {
+                match process_one(&app, &p, q, mode, png_mode, png_optimization) {
+                    Ok(pb) => (i, pb.to_string_lossy().to_string()),
+                    Err(e) => {
+                        error!(
+                            "compress failed, fallback to original path: index={}, path={}, error={}",
+                            i, p, e
+                        );
+                        // 回退：返回原图路径，保证顺序与长度不变
+                        (i, p)
+                    }
                 }
-            }
-        })
-        .collect();
+            })
+            .collect();
 
-    v.sort_by_key(|(i, _)| *i);
-    let out: Vec<String> = v.into_iter().map(|(_, s)| s).collect();
-    info!("compress_images done: count={}", out.len());
-    Ok(out)
+        v.sort_by_key(|(i, _)| *i);
+        let out: Vec<String> = v.into_iter().map(|(_, s)| s).collect();
+        info!("compress_images done: count={}", out.len());
+        Ok(out)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking error: {}", e))?
 }
 
 /// 将源文件复制到目标路径（逐一对应）。
@@ -610,7 +620,7 @@ fn process_data(
 }
 
 #[tauri::command]
-pub fn compress_image_data(
+pub async fn compress_image_data(
     app: tauri::AppHandle,
     data: Vec<u8>,
     quality: u8,
@@ -618,22 +628,27 @@ pub fn compress_image_data(
     png_mode: PngCompressionMode,
     png_optimization: PngOptimizationLevel,
 ) -> Result<String, String> {
-    // 统一限制质量范围到 0..=100
-    let q = quality.min(100);
-    info!(
-        "compress_image_data start: data_len={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
-        data.len(),
-        q,
-        mode,
-        png_mode,
-        png_optimization
-    );
+    // 将 CPU 密集工作委托给 tokio blocking 线程
+    tokio::task::spawn_blocking(move || {
+        // 统一限制质量范围到 0..=100
+        let q = quality.min(100);
+        info!(
+            "compress_image_data start: data_len={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
+            data.len(),
+            q,
+            mode,
+            png_mode,
+            png_optimization
+        );
 
-    let path_buf = process_data(&app, data, q, mode, png_mode, png_optimization)?;
-    let path_str = path_buf.to_string_lossy().to_string();
+        let path_buf = process_data(&app, data, q, mode, png_mode, png_optimization)?;
+        let path_str = path_buf.to_string_lossy().to_string();
 
-    info!("compress_image_data done: output={}", path_str);
-    Ok(path_str)
+        info!("compress_image_data done: output={}", path_str);
+        Ok(path_str)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking error: {}", e))?
 }
 
 #[tauri::command]

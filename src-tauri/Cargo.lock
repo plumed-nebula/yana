@@ -7911,6 +7911,7 @@ dependencies = [
  "tauri-plugin-os",
  "tauri-plugin-shell",
  "tempfile",
+ "tokio",
  "uuid",
  "webp",
 ]
