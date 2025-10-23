@@ -97,7 +97,3 @@ npm run tauri build
 ## 插件开发指南
 
 参加 [插件开发指南 (PLUGIN_DEVELOPMENT_GUIDE.md)](./PLUGIN_DEVELOPMENT_GUIDE.md) 了解如何编写和调试自定义图床插件。
-
-## 图标
-
-<div> Icons made by <a href="https://www.flaticon.com/authors/seyfdesigner" title="SeyfDesigner"> SeyfDesigner </a> from <a href="https://www.flaticon.com/" title="Flaticon">www.flaticon.com'</a></div>
