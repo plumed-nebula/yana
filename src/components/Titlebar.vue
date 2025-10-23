@@ -13,6 +13,10 @@ import {
   X as CloseIcon,
 } from 'lucide-vue-next';
 
+// Use the app icon from src-tauri/icons for the titlebar
+// Vite will handle asset imports; use the 32x32 variant for compact display
+// icon will be inlined as SVG so it inherits currentColor for theme adaption
+
 const appWindow = getCurrentWindow();
 const themeStore = useThemeStore();
 const isDarkTheme = themeStore.isDark;
@@ -74,7 +78,36 @@ onBeforeUnmount(() => {
     @dblclick="handleToggleMaximize"
   >
     <div class="title-meta" data-tauri-drag-region>
-      <span class="app-icon" aria-hidden="true">🖼️</span>
+      <span class="app-icon" aria-hidden="true">
+        <!-- Inline SVG uses currentColor so it adapts to light/dark themes -->
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <g fill="none" stroke="currentColor" stroke-width="1.5">
+            <path
+              stroke-linecap="round"
+              d="M22 20H10c-2.828 0-4.243 0-5.121-.879C4 18.243 4 16.828 4 14V2"
+            />
+            <path d="M6 20c3.684-3.564 7.823-8.29 14-4.745" />
+            <path
+              stroke-linecap="round"
+              d="M2 4h12c2.828 0 4.243 0 5.121.879C20 5.757 20 7.172 20 10v12"
+            />
+            <circle
+              cx="8.5"
+              cy="8.5"
+              r="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </g>
+        </svg>
+      </span>
       <div class="titles">
         <span class="name">Yana</span>
       </div>
@@ -156,8 +189,15 @@ onBeforeUnmount(() => {
 }
 
 .app-icon {
-  font-size: 18px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-icon svg {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .titles {
