@@ -108,9 +108,9 @@ onBeforeUnmount(() => {
           </g>
         </svg>
       </span>
-      <div class="titles">
+      <!-- <div class="titles">
         <span class="name">Yana</span>
-      </div>
+      </div> -->
     </div>
     <div class="drag-spacer" data-tauri-drag-region />
     <div class="window-actions" data-tauri-drag-region="false">
@@ -195,16 +195,16 @@ onBeforeUnmount(() => {
 }
 
 .app-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   display: block;
 }
 
-.titles {
+/* .titles {
   display: flex;
   flex-direction: column;
   min-width: 0;
-}
+} */
 
 .name {
   font-size: 13px;
