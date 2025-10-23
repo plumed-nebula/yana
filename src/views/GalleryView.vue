@@ -2,6 +2,7 @@
 import { onMounted, ref, computed, onBeforeUnmount, watch } from 'vue';
 import GlobalSelect from '../components/GlobalSelect.vue';
 import GalleryItemCard from '../components/GalleryItemCard.vue';
+import ImagePreviewModal from '../components/ImagePreviewModal.vue';
 import { vRegisterCard } from '../directives/vRegisterCard';
 import type { GalleryItem, GalleryQuery } from '../types/gallery';
 import {
@@ -855,25 +856,12 @@ watch(
         </transition>
       </teleport>
 
-      <teleport to="body">
-        <transition name="preview-fade">
-          <div
-            v-if="previewItem"
-            class="preview-overlay"
-            @click.self="closePreview"
-          >
-            <div class="preview-dialog">
-              <img
-                :src="previewItem.url"
-                :alt="previewItem.file_name || previewItem.url"
-              />
-            </div>
-            <button type="button" class="preview-close" @click="closePreview">
-              ×
-            </button>
-          </div>
-        </transition>
-      </teleport>
+      <!-- 新的预览组件 -->
+      <ImagePreviewModal
+        :item="previewItem"
+        :is-open="!!previewItem"
+        @close="closePreview"
+      />
     </div>
   </div>
 </template>
@@ -1499,70 +1487,7 @@ watch(
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 }
 
-.preview-overlay {
-  position: fixed;
-  inset: 0;
-  background: transparent;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 40px;
-  z-index: 1200;
-}
-
-.preview-dialog {
-  max-width: 90vw;
-  max-height: 90vh;
-  border-radius: 18px;
-  overflow: hidden;
-  background: var(--surface-panel);
-  border: 1px solid var(--surface-border);
-  box-shadow: 0 30px 60px rgba(5, 8, 18, 0.45);
-  display: flex;
-}
-
-.preview-dialog img {
-  display: block;
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  background: var(--surface-acrylic-strong);
-}
-
-.preview-close {
-  position: fixed;
-  top: 32px;
-  right: 32px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--surface-border);
-  background: var(--surface-panel);
-  color: var(--text-primary);
-  font-size: 24px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 12px 30px rgba(6, 10, 22, 0.35);
-  transition: background 0.2s ease, transform 0.2s ease, color 0.2s ease;
-}
-
-.preview-close:hover {
-  color: var(--accent);
-  transform: translateY(-1px);
-}
-
-.preview-fade-enter-active,
-.preview-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.preview-fade-enter-from,
-.preview-fade-leave-to {
-  opacity: 0;
-}
+/* 预览样式已迁移到 ImagePreviewModal 组件 */
 
 .confirm-overlay {
   position: fixed;

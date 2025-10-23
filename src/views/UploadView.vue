@@ -627,6 +627,7 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
     const quality = globalSettings.quality.value;
 
     let processedPaths = paths;
+    let compressedFileSizes: number[] = [];
 
     if (compressionEnabled) {
       try {
@@ -660,6 +661,19 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
       } finally {
         progress.completed = compressionSteps;
         progress.detail = '压缩阶段完成，准备上传…';
+      }
+
+      // 获取压缩后文件的大小
+      try {
+        const fileSizes = await invoke<number[]>('get_file_sizes', {
+          paths: processedPaths,
+        });
+        compressedFileSizes = fileSizes;
+        await logDebug(`[upload] 获取文件大小: ${JSON.stringify(fileSizes)}`);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error ?? '未知错误');
+        await logWarn(`[upload] 获取文件大小失败: ${message}`);
       }
     }
 
@@ -779,12 +793,18 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
       let saved = 0;
       for (const success of successes) {
         try {
+          // 使用压缩后的文件大小，如果没有则使用上传结果中的大小
+          const filesizeIndex = successes.indexOf(success);
+          const filesize =
+            compressedFileSizes[filesizeIndex] ??
+            resolveFilesize(success.result.metadata);
+
           await insertGalleryItem({
             file_name: success.uploadFileName,
             url: success.result.url,
             host: plugin.id,
             delete_marker: success.result.deleteId ?? null,
-            filesize: resolveFilesize(success.result.metadata),
+            filesize,
           });
         } catch (error) {
           const message =

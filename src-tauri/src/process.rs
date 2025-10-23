@@ -676,3 +676,29 @@ pub fn save_image_data(data: Vec<u8>) -> Result<String, String> {
     info!("save_image_data done: output={}", path_str);
     Ok(path_str)
 }
+
+/// 获取文件大小数组
+/// 传入文件路径数组，返回对应的文件大小数组（字节单位）
+/// 顺序与输入文件路径一致
+#[tauri::command]
+pub fn get_file_sizes(paths: Vec<String>) -> Result<Vec<u64>, String> {
+    info!("get_file_sizes start: count={}", paths.len());
+
+    let sizes: Vec<u64> = paths
+        .into_iter()
+        .map(|path| match std::fs::metadata(&path) {
+            Ok(metadata) => {
+                let size = metadata.len();
+                debug!("get_file_sizes: path={}, size={}", path, size);
+                size
+            }
+            Err(e) => {
+                error!("get_file_sizes: failed to get metadata for {}: {}", path, e);
+                0
+            }
+        })
+        .collect();
+
+    info!("get_file_sizes done: count={}", sizes.len());
+    Ok(sizes)
+}
