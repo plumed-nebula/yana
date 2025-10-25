@@ -4,6 +4,7 @@ mod image_hosts;
 mod process;
 mod s3;
 mod settings;
+mod thumbnail;
 mod upload;
 
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
@@ -73,6 +74,10 @@ pub fn run() {
             gallery::gallery_delete_item,
             gallery::gallery_query_items,
             gallery::gallery_list_hosts,
+            thumbnail::generate_thumbnails,
+            thumbnail::get_thumbnail_path,
+            thumbnail::clear_thumbnail_cache,
+            thumbnail::get_thumbnail_cache_size,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

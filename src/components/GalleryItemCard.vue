@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, toRefs } from 'vue';
+import { computed, toRefs, onMounted, ref } from 'vue';
 import type { GalleryItem } from '../types/gallery';
 import { Link2, Trash2 } from 'lucide-vue-next';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 
 const props = defineProps<{
   item: GalleryItem;
@@ -33,6 +34,22 @@ const emit = defineEmits<{
   (e: 'delete', item: GalleryItem): void;
   (e: 'toggle-select'): void;
 }>();
+
+const thumbnailPath = ref<string>('');
+
+onMounted(async () => {
+  try {
+    // 从后端查询缩略图路径（后端负责所有路径生成逻辑）
+    const result = await invoke<string | null>('get_thumbnail_path', {
+      url: item.value.url,
+    });
+    if (result) {
+      thumbnailPath.value = result;
+    }
+  } catch {
+    // 查询失败，继续使用原始 URL
+  }
+});
 
 function handlePreview(e?: Event) {
   // 如果正在进行 Ctrl 拖拽，不触发预览
@@ -71,6 +88,11 @@ function handleBadgeClick() {
 }
 
 const imageSrc = computed(() => {
+  // 优先使用缩略图，如果路径已计算且非空
+  if (thumbnailPath.value) {
+    return convertFileSrc(thumbnailPath.value);
+  }
+
   const raw = item.value.url;
   // correct double-colon protocol typo
   return raw.replace('https:://', 'https://').replace('http:://', 'http://');

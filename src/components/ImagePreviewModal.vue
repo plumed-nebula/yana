@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { Info, ZoomIn, ZoomOut, RotateCcw, X } from 'lucide-vue-next';
 import type { GalleryItem } from '../types/gallery';
 
@@ -40,6 +40,9 @@ let mouseMoveTimeout: ReturnType<typeof setTimeout> | null = null;
 // 图片元素引用
 const imgRef = ref<HTMLImageElement | null>(null);
 const overlayRef = ref<HTMLDivElement | null>(null);
+
+// 图片加载状态
+const isImageLoading = ref(true);
 
 // 格式化时间
 function formatDate(timestamp: string | undefined): string {
@@ -231,6 +234,17 @@ const imageInfo = computed(() => {
     imageHost: props.item.host || '未知',
   };
 });
+
+// 当图片改变时重置加载状态
+watch(
+  () => props.item?.url,
+  () => {
+    isImageLoading.value = true;
+    scale.value = 1;
+    dragOffsetX.value = 0;
+    dragOffsetY.value = 0;
+  }
+);
 </script>
 
 <template>
@@ -282,13 +296,20 @@ const imageInfo = computed(() => {
           @wheel.prevent="handleWheel"
         >
           <div class="image-container" :style="imageContainerStyle">
+            <!-- 加载动画 -->
+            <div v-if="isImageLoading" class="loading-spinner">
+              <div class="spinner"></div>
+            </div>
             <img
               ref="imgRef"
               :src="item.url"
               :alt="item.file_name || item.url"
               class="preview-image"
+              :class="{ 'image-loaded': !isImageLoading }"
               draggable="false"
               @dragstart.prevent
+              @load="isImageLoading = false"
+              @error="isImageLoading = false"
             />
           </div>
 
@@ -391,6 +412,11 @@ const imageInfo = computed(() => {
   pointer-events: none;
   -webkit-user-drag: none;
   -webkit-touch-callout: none;
+  transition: opacity 0.3s ease;
+}
+
+.preview-image.image-loaded {
+  animation: fadeIn 0.3s ease;
 }
 
 .preview-close {
@@ -558,6 +584,42 @@ const imageInfo = computed(() => {
 
 .zoom-btn.reset {
   font-size: 14px;
+}
+
+/* 加载动画 */
+.loading-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(122, 163, 255, 0.2);
+  border-top-color: var(--accent, #7aa3ff);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .zoom-value {

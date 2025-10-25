@@ -822,6 +822,14 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
           progress.detail = `保存到图库 (${saved}/${saveSteps})`;
         }
       }
+
+      // 上传完成后，在后台批量生成缩略图（不阻塞主流程）
+      if (globalSettings.enableThumbnailCache.value && successes.length > 0) {
+        const urls = successes.map((s) => s.result.url);
+        void invoke('generate_thumbnails', { urls }).catch((err) => {
+          void logWarn(`[upload] 后台缩略图生成失败: ${String(err)}`);
+        });
+      }
     }
 
     const summary = errors.length

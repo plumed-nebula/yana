@@ -46,6 +46,7 @@ aws-credential-types = "1"
 uuid = { version = "1.10", features = ["v4"] }
 mime_guess = "2.0"
 tauri-plugin-shell = "2"
+futures = "0.3"
 
 [dev-dependencies]
 futures = "0.3"

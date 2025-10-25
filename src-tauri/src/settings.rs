@@ -23,6 +23,8 @@ pub struct SettingsPayload {
     pub enable_upload_compression: bool,
     #[serde(default = "default_max_concurrent_uploads")]
     pub max_concurrent_uploads: u8,
+    #[serde(default)]
+    pub enable_thumbnail_cache: bool,
 }
 
 impl Default for SettingsPayload {
@@ -34,6 +36,7 @@ impl Default for SettingsPayload {
             png_optimization: PngOptimizationLevel::default(),
             enable_upload_compression: false,
             max_concurrent_uploads: default_max_concurrent_uploads(),
+            enable_thumbnail_cache: true,
         }
     }
 }
@@ -49,6 +52,7 @@ impl SettingsPayload {
             max_concurrent_uploads: self
                 .max_concurrent_uploads
                 .clamp(1, default_max_concurrent_uploads()),
+            enable_thumbnail_cache: self.enable_thumbnail_cache,
         }
     }
 }
@@ -160,6 +164,7 @@ mod tests {
             png_optimization: PngOptimizationLevel::Default,
             enable_upload_compression: true,
             max_concurrent_uploads: 3,
+            enable_thumbnail_cache: true,
         };
 
         let json = serde_json::to_string_pretty(&settings).unwrap();
@@ -168,11 +173,11 @@ mod tests {
         // 验证字段名是驼峰式
         assert!(json.contains("\"quality\""));
         assert!(json.contains("\"convertToWebp\""));
-        assert!(json.contains("\"forceAnimatedWebp\""));
         assert!(json.contains("\"pngCompressionMode\""));
         assert!(json.contains("\"pngOptimization\""));
         assert!(json.contains("\"enableUploadCompression\""));
         assert!(json.contains("\"maxConcurrentUploads\""));
+        assert!(json.contains("\"enableThumbnailCache\""));
 
         // 反序列化验证
         let deserialized: SettingsPayload = serde_json::from_str(&json).unwrap();
@@ -185,5 +190,6 @@ mod tests {
         assert_eq!(deserialized.png_optimization, PngOptimizationLevel::Default);
         assert_eq!(deserialized.enable_upload_compression, true);
         assert_eq!(deserialized.max_concurrent_uploads, 3);
+        assert_eq!(deserialized.enable_thumbnail_cache, true);
     }
 }

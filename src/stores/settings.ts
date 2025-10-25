@@ -12,6 +12,7 @@ type PersistedSettings = {
   pngOptimization: PngOptimizationLevel;
   enableUploadCompression: boolean;
   maxConcurrentUploads: number;
+  enableThumbnailCache: boolean;
 };
 
 const DEFAULTS: PersistedSettings = {
@@ -21,6 +22,7 @@ const DEFAULTS: PersistedSettings = {
   pngOptimization: 'default',
   enableUploadCompression: false,
   maxConcurrentUploads: 5,
+  enableThumbnailCache: true,
 };
 
 let singleton: ReturnType<typeof createStore> | null = null;
@@ -95,6 +97,9 @@ function normalizePayload(
     ),
     maxConcurrentUploads: sanitizeConcurrency(
       concurrencyFromBackend ?? DEFAULTS.maxConcurrentUploads
+    ),
+    enableThumbnailCache: Boolean(
+      payload?.enableThumbnailCache ?? DEFAULTS.enableThumbnailCache
     ),
   };
 }
@@ -179,6 +184,7 @@ function createStore() {
       maxConcurrentUploads: sanitizeConcurrency(
         internalState.maxConcurrentUploads
       ),
+      enableThumbnailCache: Boolean(internalState.enableThumbnailCache),
     };
     try {
       await debug(`[settings] persist: saving ${safeJson(payload)}`);
@@ -230,6 +236,9 @@ function createStore() {
     'maxConcurrentUploads',
     sanitizeConcurrency
   );
+  const enableThumbnailCache = createAutoSaveRef<boolean>(
+    'enableThumbnailCache'
+  );
 
   return {
     quality,
@@ -238,6 +247,7 @@ function createStore() {
     pngOptimization,
     enableUploadCompression,
     maxConcurrentUploads,
+    enableThumbnailCache,
     ready: readonly(ready),
     loading: readonly(loading),
     error: readonly(lastError),

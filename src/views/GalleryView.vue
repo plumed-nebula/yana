@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, computed, onBeforeUnmount, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import GlobalSelect from '../components/GlobalSelect.vue';
 import GalleryItemCard from '../components/GalleryItemCard.vue';
 import ImagePreviewModal from '../components/ImagePreviewModal.vue';
@@ -320,6 +321,26 @@ async function fetchItems() {
 
     const result = await queryGalleryItems(query);
     items.value = result;
+
+    // 批量预加载缩略图（不阻塞主流程）
+    const settings = useSettingsStore();
+    if (settings.enableThumbnailCache.value && result.length > 0) {
+      const urls = result.map((item) => item.url);
+      // 分批处理以避免单次请求过大
+      const batchSize = 20;
+      for (let i = 0; i < urls.length; i += batchSize) {
+        const batch = urls.slice(i, i + batchSize);
+        void invoke('generate_thumbnails', { urls: batch }).catch(
+          (err: any) => {
+            void logWarn(
+              `[gallery] 批量缩略图生成失败 (batch ${i}-${
+                i + batchSize
+              }): ${String(err)}`
+            );
+          }
+        );
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     errorMessage.value = `加载图片失败：${message}`;

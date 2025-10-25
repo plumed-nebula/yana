@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import GlobalSelect from '../components/GlobalSelect.vue';
 import { useSettingsStore } from '../stores/settings';
 import { invoke } from '@tauri-apps/api/core';
@@ -14,6 +14,23 @@ interface Props {
 defineProps<Props>();
 
 const settings = useSettingsStore();
+
+const cacheSizeInBytes = ref(0);
+const isLoadingCacheSize = ref(false);
+const isClearingCache = ref(false);
+
+const cacheSizeDisplay = computed(() => {
+  const bytes = cacheSizeInBytes.value;
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(2)} ${units[unitIndex]}`;
+});
 
 const pngModeDescription = computed(() => {
   if (settings.convertToWebp.value) {
@@ -68,6 +85,29 @@ function restoreDefaults() {
   settings.maxConcurrentUploads.value = 5;
 }
 
+async function loadThumbnailCacheSize() {
+  try {
+    isLoadingCacheSize.value = true;
+    cacheSizeInBytes.value = await invoke<number>('get_thumbnail_cache_size');
+  } catch (e) {
+    logError(`[settings] Failed to get thumbnail cache size: ${e}`);
+  } finally {
+    isLoadingCacheSize.value = false;
+  }
+}
+
+async function clearThumbnailCache() {
+  try {
+    isClearingCache.value = true;
+    await invoke('clear_thumbnail_cache');
+    cacheSizeInBytes.value = 0;
+  } catch (e) {
+    logError(`[settings] Failed to clear thumbnail cache: ${e}`);
+  } finally {
+    isClearingCache.value = false;
+  }
+}
+
 /**
  * 弹窗选择本地 JS 文件并添加为图床插件
  */
@@ -91,6 +131,10 @@ async function reloadPlugins() {
   clearPluginCache();
   window.location.reload();
 }
+
+onMounted(() => {
+  void loadThumbnailCacheSize();
+});
 </script>
 
 <template>
@@ -230,6 +274,54 @@ async function reloadPlugins() {
           />
         </div>
         <p class="help">{{ pngOptimizationDescription }}</p>
+      </section>
+
+      <section class="group-title">
+        <h2>图片缓存</h2>
+        <p>配置缩略图缓存以加速图库加载和图片预览。</p>
+      </section>
+
+      <section class="field">
+        <div class="toggle">
+          <label>
+            <input
+              type="checkbox"
+              v-model="settings.enableThumbnailCache.value"
+            />
+            <span class="title">启用缩略图缓存</span>
+          </label>
+          <p class="help">
+            启用后，图片上传和图库加载时会自动生成 320×225px 的 WebP
+            缓略图，显著加速界面响应速度。缓存文件存储在应用数据目录，可随时清理。
+          </p>
+        </div>
+      </section>
+
+      <section class="field">
+        <div class="field-head">
+          <label>缓存占用空间</label>
+          <span class="value">{{ cacheSizeDisplay }}</span>
+        </div>
+        <p class="help">
+          当前缩略图缓存占用的磁盘空间。点击下方按钮可清理所有缓存文件。
+        </p>
+        <div class="cache-actions">
+          <button
+            type="button"
+            @click="loadThumbnailCacheSize"
+            :disabled="isLoadingCacheSize"
+          >
+            {{ isLoadingCacheSize ? '刷新中...' : '刷新缓存大小' }}
+          </button>
+          <button
+            type="button"
+            @click="clearThumbnailCache"
+            :disabled="isClearingCache || cacheSizeInBytes === 0"
+            class="danger"
+          >
+            {{ isClearingCache ? '清理中...' : '清理缓存' }}
+          </button>
+        </div>
       </section>
 
       <footer>
@@ -412,6 +504,45 @@ async function reloadPlugins() {
   grid-column: 2 / 3;
   font-size: 13px;
   color: var(--text-secondary);
+}
+
+.cache-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.cache-actions button {
+  flex: 1;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-weight: 600;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+
+.cache-actions button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.cache-actions button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.cache-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cache-actions button.danger:hover:not(:disabled) {
+  background: var(--danger-soft, rgba(255, 68, 68, 0.1));
+  border-color: var(--danger, #ff4444);
+  color: var(--danger, #ff4444);
 }
 
 footer {
