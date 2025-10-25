@@ -823,12 +823,24 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
         }
       }
 
-      // 上传完成后，在后台批量生成缩略图（不阻塞主流程）
+      // 上传完成后，在后台批量生成缩略图（后台任务，切出页面后仍会继续）
       if (globalSettings.enableThumbnailCache.value && successes.length > 0) {
-        const urls = successes.map((s) => s.result.url);
-        void invoke('generate_thumbnails', { urls }).catch((err) => {
-          void logWarn(`[upload] 后台缩略图生成失败: ${String(err)}`);
-        });
+        // 构建 (url, local_path) 元组，使用本地文件直接生成缩略图，避免再次下载
+        const thumbnailItems = successes
+          .map((s) => {
+            // 从 uploadEntries 中找到对应的本地文件路径
+            const uploadEntry = uploadEntries.find((e) => e.index === s.index);
+            if (uploadEntry) {
+              return [s.result.url, uploadEntry.uploadPath] as [string, string];
+            }
+            return null;
+          })
+          .filter(Boolean) as Array<[string, string]>;
+
+        if (thumbnailItems.length > 0) {
+          // 在后台生成缩略图，不等待，用户切走也会继续执行
+          void generateThumbnailsInBackground(thumbnailItems);
+        }
       }
     }
 
@@ -924,6 +936,18 @@ async function uploadClipboard() {
   }
   // 继续执行上传流程
   await processPaths([tempPath]);
+}
+
+// 后台生成缩略图（不等待，切出页面后仍会继续执行）
+// 接受 (url, localPath) 元组数组，直接使用本地文件生成，无需再次下载
+async function generateThumbnailsInBackground(
+  items: Array<[string, string]>
+): Promise<void> {
+  try {
+    await invoke<string[]>('generate_thumbnails_from_local', { items });
+  } catch (err: any) {
+    void logWarn(`[upload] 缩略图生成失败: ${String(err)}`);
+  }
 }
 </script>
 

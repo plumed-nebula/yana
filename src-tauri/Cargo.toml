@@ -47,6 +47,7 @@ uuid = { version = "1.10", features = ["v4"] }
 mime_guess = "2.0"
 tauri-plugin-shell = "2"
 futures = "0.3"
+sha2 = "0.10"
 
 [dev-dependencies]
 futures = "0.3"

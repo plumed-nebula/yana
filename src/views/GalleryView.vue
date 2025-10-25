@@ -322,24 +322,13 @@ async function fetchItems() {
     const result = await queryGalleryItems(query);
     items.value = result;
 
-    // 批量预加载缩略图（不阻塞主流程）
+    // 批量预加载缩略图（串行发送，后台继续执行）
     const settings = useSettingsStore();
     if (settings.enableThumbnailCache.value && result.length > 0) {
       const urls = result.map((item) => item.url);
-      // 分批处理以避免单次请求过大
+      // 分批处理以避免单次请求过大，串行发送保证后端不会被多个请求同时触发
       const batchSize = 20;
-      for (let i = 0; i < urls.length; i += batchSize) {
-        const batch = urls.slice(i, i + batchSize);
-        void invoke('generate_thumbnails', { urls: batch }).catch(
-          (err: any) => {
-            void logWarn(
-              `[gallery] 批量缩略图生成失败 (batch ${i}-${
-                i + batchSize
-              }): ${String(err)}`
-            );
-          }
-        );
-      }
+      generateThumbnailsSerially(urls, batchSize);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -347,6 +336,30 @@ async function fetchItems() {
     logError(`Failed to fetch gallery items: ${message}`);
   } finally {
     loading.value = false;
+  }
+}
+
+// 串行生成缩略图（后台任务，切出页面后仍会继续）
+// 不重试，但保证后端同时只有一个任务在执行
+async function generateThumbnailsSerially(
+  urls: string[],
+  batchSize: number
+): Promise<void> {
+  try {
+    for (let i = 0; i < urls.length; i += batchSize) {
+      const batch = urls.slice(i, i + batchSize);
+      try {
+        // 等待本次 batch 完成后再发送下一个
+        await invoke<string[]>('generate_thumbnails', { urls: batch });
+      } catch (err: any) {
+        // 记录错误但继续处理下一个 batch
+        void logWarn(
+          `[gallery] Batch ${i}-${i + batchSize} failed: ${String(err)}`
+        );
+      }
+    }
+  } catch (err: any) {
+    void logError(`[gallery] Thumbnail processing error: ${String(err)}`);
   }
 }
 

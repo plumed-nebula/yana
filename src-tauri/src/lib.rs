@@ -75,6 +75,7 @@ pub fn run() {
             gallery::gallery_query_items,
             gallery::gallery_list_hosts,
             thumbnail::generate_thumbnails,
+            thumbnail::generate_thumbnails_from_local,
             thumbnail::get_thumbnail_path,
             thumbnail::clear_thumbnail_cache,
             thumbnail::get_thumbnail_cache_size,
