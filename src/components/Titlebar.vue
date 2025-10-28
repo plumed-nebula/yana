@@ -23,6 +23,18 @@ const isDarkTheme = themeStore.isDark;
 
 const isMaximized = ref(false);
 
+function onDragStart() {
+  // 在某些 Linux 平台（例如使用 WebKitGTK 的 Wayland 环境）中，
+  // CSS 的 -webkit-app-region: drag 可能不被引擎支持。作为回退，
+  // 在 mousedown/touchstart 时尝试调用 window 的 startDragging API。
+  // 使用 any 和可选链以避免在不支持该方法的运行时抛出错误。
+  try {
+    (appWindow as any).startDragging?.();
+  } catch (e) {
+    // 忽略错误——这只是回退行为
+  }
+}
+
 async function refreshState() {
   isMaximized.value = await appWindow.isMaximized();
 }
@@ -72,39 +84,17 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <header
-    class="titlebar"
-    data-tauri-drag-region
-    @dblclick="handleToggleMaximize"
-  >
+  <header class="titlebar" data-tauri-drag-region @dblclick="handleToggleMaximize">
     <div class="title-meta" data-tauri-drag-region>
       <span class="app-icon" aria-hidden="true">
         <!-- Inline SVG uses currentColor so it adapts to light/dark themes -->
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-          focusable="false"
-        >
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"
+          focusable="false">
           <g fill="none" stroke="currentColor" stroke-width="1.5">
-            <path
-              stroke-linecap="round"
-              d="M22 20H10c-2.828 0-4.243 0-5.121-.879C4 18.243 4 16.828 4 14V2"
-            />
+            <path stroke-linecap="round" d="M22 20H10c-2.828 0-4.243 0-5.121-.879C4 18.243 4 16.828 4 14V2" />
             <path d="M6 20c3.684-3.564 7.823-8.29 14-4.745" />
-            <path
-              stroke-linecap="round"
-              d="M2 4h12c2.828 0 4.243 0 5.121.879C20 5.757 20 7.172 20 10v12"
-            />
-            <circle
-              cx="8.5"
-              cy="8.5"
-              r="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
+            <path stroke-linecap="round" d="M2 4h12c2.828 0 4.243 0 5.121.879C20 5.757 20 7.172 20 10v12" />
+            <circle cx="8.5" cy="8.5" r="1.5" stroke-linecap="round" stroke-linejoin="round" />
           </g>
         </svg>
       </span>
@@ -112,45 +102,22 @@ onBeforeUnmount(() => {
         <span class="name">Yana</span>
       </div> -->
     </div>
-    <div class="drag-spacer" data-tauri-drag-region />
+    <div class="drag-spacer" data-tauri-drag-region @mousedown.prevent="onDragStart"
+      @touchstart.prevent="onDragStart" />
     <div class="window-actions" data-tauri-drag-region="false">
-      <button
-        type="button"
-        class="action theme-toggle"
-        :aria-label="isDarkTheme ? '切换为浅色模式' : '切换为深色模式'"
-        @click="handleToggleTheme"
-      >
+      <button type="button" class="action theme-toggle" :aria-label="isDarkTheme ? '切换为浅色模式' : '切换为深色模式'"
+        @click="handleToggleTheme">
         <Moon v-if="isDarkTheme" class="icon" :size="18" :stroke-width="1.6" />
         <SunMedium v-else class="icon" :size="18" :stroke-width="1.6" />
       </button>
-      <button
-        type="button"
-        class="action"
-        aria-label="最小化"
-        @click="handleMinimize"
-      >
+      <button type="button" class="action" aria-label="最小化" @click="handleMinimize">
         <Minus class="icon" :size="16" :stroke-width="2.2" />
       </button>
-      <button
-        type="button"
-        class="action"
-        :aria-label="isMaximized ? '还原窗口' : '最大化'"
-        @click="handleToggleMaximize"
-      >
-        <Maximize2
-          v-if="!isMaximized"
-          class="icon"
-          :size="16"
-          :stroke-width="2"
-        />
+      <button type="button" class="action" :aria-label="isMaximized ? '还原窗口' : '最大化'" @click="handleToggleMaximize">
+        <Maximize2 v-if="!isMaximized" class="icon" :size="16" :stroke-width="2" />
         <Minimize2 v-else class="icon" :size="16" :stroke-width="2" />
       </button>
-      <button
-        type="button"
-        class="action danger"
-        aria-label="关闭窗口"
-        @click="handleClose"
-      >
+      <button type="button" class="action danger" aria-label="关闭窗口" @click="handleClose">
         <CloseIcon class="icon" :size="16" :stroke-width="2.1" />
       </button>
     </div>

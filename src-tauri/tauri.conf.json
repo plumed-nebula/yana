@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "yana",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 800,
         "minHeight": 600,
         "minWidth": 800,
         "decorations": false,
@@ -64,13 +64,6 @@
           "English"
         ],
         "displayLanguageSelector": true
-      }
-    }
-  },
-  "tauri": {
-    "allowlist": {
-      "clipboard": {
-        "all": true
       }
     }
   }

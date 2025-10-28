@@ -49,6 +49,7 @@ mime_guess = "2.0"
 tauri-plugin-shell = "2"
 futures = "0.3"
 sha2 = "0.10"
+tauri-plugin-clipboard-manager = "2"
 
 [dev-dependencies]
 futures = "0.3"
