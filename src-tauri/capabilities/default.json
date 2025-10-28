@@ -37,7 +37,7 @@
       "allow": [
         {
           "sidecar": true,
-          "name": "bin\\gif2webp",
+          "name": "bin/gif2webp",
           "args": true
         }
       ]
