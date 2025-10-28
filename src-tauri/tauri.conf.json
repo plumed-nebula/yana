@@ -62,4 +62,12 @@
       }
     }
   }
+  ,
+  "tauri": {
+    "allowlist": {
+      "clipboard": {
+        "all": true
+      }
+    }
+  }
 }

@@ -37,12 +37,13 @@ chrono = { version = "0.4", features = ["clock"] }
 reqwest = { version = "0.12", default-features = true, features = [
     "json",
     "multipart",
+    "rustls-tls",
 ] }
 base64 = "0.22"
 rusqlite = { version = "0.37", features = ["bundled"] }
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-s3 = "1"
-aws-credential-types = "1"
+http = "0.2"
+rusty-s3 = "0.8"
+url = "2"
 uuid = { version = "1.10", features = ["v4"] }
 mime_guess = "2.0"
 tauri-plugin-shell = "2"

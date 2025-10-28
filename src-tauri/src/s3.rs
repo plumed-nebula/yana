@@ -1,17 +1,11 @@
 use std::path::Path;
+use std::time::Duration;
 
-use aws_credential_types::{Credentials, provider::SharedCredentialsProvider};
-use aws_sdk_s3::{
-    Client,
-    config::{Builder as S3ConfigBuilder, Region},
-    error::{ProvideErrorMetadata, SdkError},
-    primitives::ByteStream,
-    types::ObjectCannedAcl,
-};
 use chrono::Utc;
 use mime_guess::MimeGuess;
+use rusty_s3::{Bucket, Credentials, S3Action};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize)]
@@ -48,46 +42,54 @@ struct S3ConfigOptions {
     secret_access_key: String,
 }
 
-async fn build_client(options: &S3ConfigOptions) -> Result<Client, String> {
-    let region = if options.endpoint.is_some() {
-        // Cloudflare R2 requires signing region "auto"
-        Region::new("auto".to_string())
-    } else {
-        Region::new(options.region.clone())
-    };
-    let credentials = Credentials::new(
-        options.access_key_id.clone(),
-        options.secret_access_key.clone(),
-        None,
-        None,
-        "Static",
-    );
-    let provider = SharedCredentialsProvider::new(credentials);
-
-    // load config with region for signing
-    let shared_config = aws_config::from_env()
-        .region(region.clone())
-        .credentials_provider(provider)
-        .load()
-        .await;
-
-    // inherit region from shared_config for signing
-    let mut builder = S3ConfigBuilder::from(&shared_config);
-    if let Some(endpoint) = &options.endpoint {
-        // strip any path segments, keep only scheme and host
-        let trimmed = endpoint
+fn build_bucket_and_credentials(
+    options: &S3ConfigOptions,
+    bucket_name: &str,
+) -> Result<(Bucket, Credentials), String> {
+    // 构建 endpoint
+    let endpoint = if let Some(custom_endpoint) = &options.endpoint {
+        // 去除路径部分，只保留 scheme 和 host
+        let trimmed = custom_endpoint
             .splitn(4, '/')
             .take(3)
             .collect::<Vec<_>>()
             .join("/");
-        builder = builder.endpoint_url(&trimmed);
-    }
-    if options.force_path_style {
-        builder = builder.force_path_style(true);
-    }
+        trimmed
+    } else {
+        // 对于 AWS S3，使用标准的 endpoint 格式
+        if options.force_path_style {
+            format!("https://s3.{}.amazonaws.com", options.region)
+        } else {
+            format!(
+                "https://{}.s3.{}.amazonaws.com",
+                bucket_name, options.region
+            )
+        }
+    };
 
-    let config = builder.build();
-    Ok(Client::from_conf(config))
+    // 解析 endpoint
+    let url = url::Url::parse(&endpoint).map_err(|err| format!("invalid endpoint URL: {}", err))?;
+
+    // 创建 bucket
+    let bucket = Bucket::new(
+        url,
+        if options.force_path_style {
+            rusty_s3::UrlStyle::Path
+        } else {
+            rusty_s3::UrlStyle::VirtualHost
+        },
+        bucket_name.to_string(),
+        options.region.clone(),
+    )
+    .map_err(|err| format!("failed to create bucket: {}", err))?;
+
+    // 创建 credentials
+    let credentials = Credentials::new(
+        options.access_key_id.clone(),
+        options.secret_access_key.clone(),
+    );
+
+    Ok((bucket, credentials))
 }
 
 fn sanitize_file_name(input: &str) -> String {
@@ -159,7 +161,7 @@ fn build_public_url(
     }
 }
 
-fn map_acl(value: Option<&str>) -> Result<Option<ObjectCannedAcl>, String> {
+fn map_acl(value: Option<&str>) -> Result<Option<String>, String> {
     let Some(raw) = value else {
         return Ok(None);
     };
@@ -169,18 +171,18 @@ fn map_acl(value: Option<&str>) -> Result<Option<ObjectCannedAcl>, String> {
     }
     let lowered = trimmed.to_ascii_lowercase();
     let acl = match lowered.as_str() {
-        "private" => ObjectCannedAcl::Private,
-        "public-read" => ObjectCannedAcl::PublicRead,
-        "public-read-write" => ObjectCannedAcl::PublicReadWrite,
-        "authenticated-read" => ObjectCannedAcl::AuthenticatedRead,
-        "aws-exec-read" => ObjectCannedAcl::AwsExecRead,
-        "bucket-owner-read" => ObjectCannedAcl::BucketOwnerRead,
-        "bucket-owner-full-control" => ObjectCannedAcl::BucketOwnerFullControl,
+        "private" => "private",
+        "public-read" => "public-read",
+        "public-read-write" => "public-read-write",
+        "authenticated-read" => "authenticated-read",
+        "aws-exec-read" => "aws-exec-read",
+        "bucket-owner-read" => "bucket-owner-read",
+        "bucket-owner-full-control" => "bucket-owner-full-control",
         other => {
             return Err(format!("unsupported ACL value: {other}"));
         }
     };
-    Ok(Some(acl))
+    Ok(Some(acl.to_string()))
 }
 
 #[tauri::command]
@@ -217,50 +219,50 @@ pub async fn s3_upload(
         access_key_id,
         secret_access_key,
     };
-    let client = build_client(&options).await?;
+
+    let (bucket_obj, credentials) = build_bucket_and_credentials(&options, &bucket)
+        .map_err(|err| format!("failed to build bucket and credentials: {}", err))?;
 
     let object_key = generate_object_key(object_prefix.as_deref(), &original_file_name);
-    let mut request = client
-        .put_object()
-        .bucket(&bucket)
-        .key(&object_key)
-        .body(ByteStream::from(file_bytes));
 
-    if let Some(content_type) = resolve_content_type(&original_file_name) {
-        request = request.content_type(content_type);
+    // 创建 PUT 操作
+    let action = bucket_obj.put_object(Some(&credentials), &object_key);
+
+    // 预签名时会由 `sign(Duration)` 添加过期参数，避免重复插入
+
+    // 不将可变请求头加入到签名内（避免因 header 值或大小写差异导致 SignatureDoesNotMatch）。
+    // 我们将在发起 HTTP 请求时，将 Content-Type 与 x-amz-acl 附加到 reqwest 请求头中。
+    let content_type_header = resolve_content_type(&original_file_name);
+    let acl_header = map_acl(acl.as_deref())?;
+
+    // 生成预签名 URL
+    let presigned_url = action.sign(Duration::from_secs(900));
+
+    // 使用 reqwest 执行上传
+    let client = reqwest::Client::new();
+    let mut req = client.put(presigned_url.as_str()).body(file_bytes);
+    if let Some(ct) = content_type_header {
+        req = req.header("Content-Type", ct);
     }
-
-    // set ACL if provided
-    if let Some(acl_val) = map_acl(acl.as_deref())? {
-        request = request.acl(acl_val);
+    if let Some(acl_val) = acl_header {
+        req = req.header("x-amz-acl", acl_val);
     }
+    let response = req
+        .send()
+        .await
+        .map_err(|err| format!("failed to upload file: {}", err))?;
 
-    let response = request.send().await.map_err(|err| {
-        let detail = if let SdkError::ServiceError(service_err) = &err {
-            let code = service_err
-                .err()
-                .code()
-                .map(str::to_string)
-                .unwrap_or_else(|| "Unknown".to_string());
-            let message = service_err
-                .err()
-                .message()
-                .map(str::to_string)
-                .unwrap_or_else(|| service_err.err().to_string());
-            format!("service error (code {code}): {message}")
-        } else if let SdkError::ResponseError(response_err) = &err {
-            format!("response error: {response_err:?}")
-        } else if let SdkError::DispatchFailure(failure) = &err {
-            format!("dispatch failure: {failure:?}")
-        } else if let SdkError::TimeoutError(timeout) = &err {
-            format!("timeout: {timeout:?}")
-        } else if let SdkError::ConstructionFailure(construction) = &err {
-            format!("construction failure: {construction:?}")
-        } else {
-            err.to_string()
-        };
-        format!("failed to upload to S3: {detail}")
-    })?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!(
+            "upload failed with status {}: {}",
+            status, error_text
+        ));
+    }
 
     let delete_marker = S3DeleteMarker {
         bucket: bucket.clone(),
@@ -270,18 +272,9 @@ pub async fn s3_upload(
         force_path_style: options.force_path_style,
     };
 
-    let mut metadata_map = serde_json::Map::new();
-    if let Some(etag) = response.e_tag() {
-        metadata_map.insert("etag".to_string(), json!(etag));
-    }
-    if let Some(version_id) = response.version_id() {
-        metadata_map.insert("versionId".to_string(), json!(version_id));
-    }
-    let metadata = if metadata_map.is_empty() {
-        None
-    } else {
-        Some(Value::Object(metadata_map))
-    };
+    // 对于 rusty-s3，我们无法直接从响应中获取 ETag 和 VersionId
+    // 你可以选择从响应头中提取，或者省略这些元数据
+    let metadata = None;
 
     let public_url = build_public_url(
         public_base_url.as_deref(),
@@ -318,40 +311,37 @@ pub async fn s3_delete(
         access_key_id,
         secret_access_key,
     };
-    let client = build_client(&options).await?;
 
-    client
-        .delete_object()
-        .bucket(&marker.bucket)
-        .key(&marker.key)
+    let (bucket_obj, credentials) = build_bucket_and_credentials(&options, &marker.bucket)
+        .map_err(|err| format!("failed to build bucket and credentials: {}", err))?;
+
+    // 创建 DELETE 操作
+    let action = bucket_obj.delete_object(Some(&credentials), &marker.key);
+
+    // 预签名时会由 `sign(Duration)` 添加过期参数，避免重复插入
+
+    // 生成预签名 URL
+    let presigned_url = action.sign(Duration::from_secs(900));
+
+    // 使用 reqwest 执行删除
+    let client = reqwest::Client::new();
+    let response = client
+        .delete(presigned_url.as_str())
         .send()
         .await
-        .map_err(|err| {
-            let detail = if let SdkError::ServiceError(service_err) = &err {
-                let code = service_err
-                    .err()
-                    .code()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| "Unknown".to_string());
-                let message = service_err
-                    .err()
-                    .message()
-                    .map(str::to_string)
-                    .unwrap_or_else(|| service_err.err().to_string());
-                format!("service error (code {code}): {message}")
-            } else if let SdkError::ResponseError(response_err) = &err {
-                format!("response error: {response_err:?}")
-            } else if let SdkError::DispatchFailure(failure) = &err {
-                format!("dispatch failure: {failure:?}")
-            } else if let SdkError::TimeoutError(timeout) = &err {
-                format!("timeout: {timeout:?}")
-            } else if let SdkError::ConstructionFailure(construction) = &err {
-                format!("construction failure: {construction:?}")
-            } else {
-                err.to_string()
-            };
-            format!("failed to delete S3 object: {detail}")
-        })?;
+        .map_err(|err| format!("failed to delete object: {}", err))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(format!(
+            "delete failed with status {}: {}",
+            status, error_text
+        ));
+    }
 
     Ok(S3DeleteResult {
         success: true,
