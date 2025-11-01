@@ -34,7 +34,7 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -45,7 +45,7 @@ jobs:
         run: npm ci
 
       - name: Build Android APK (Release)
-        run: npm run tauri android build --release
+        run: npm run tauri android build -- --target=x86_64 --target=armv7 --target=aarch64
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.11902837
 
@@ -80,7 +80,7 @@ jobs:
         shell: bash
         run: |
           if [ -f "UPDATE.md" ]; then
-            delimiter="ghadelimiter_$(uuidgen)"
+            delimiter="ghadelimiter_$(dd if=/dev/urandom bs=15 count=1 2>/dev/null | base64 | tr -dc 'a-zA-Z0-9')"
             {
               echo "notes<<${delimiter}"
               cat UPDATE.md

@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           if [ -f "UPDATE.md" ]; then
-            delimiter="ghadelimiter_$(uuidgen)"
+            delimiter="ghadelimiter_$(dd if=/dev/urandom bs=15 count=1 2>/dev/null | base64 | tr -dc 'a-zA-Z0-9')"
             {
               echo "notes<<${delimiter}"
               cat UPDATE.md
