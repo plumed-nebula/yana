@@ -45,15 +45,27 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
+      - name: Read release notes
+        id: release-notes
+        shell: bash
+        run: |
+          if [ -f "UPDATE.md" ]; then
+            {
+              echo "notes<<EOF"
+              cat UPDATE.md
+              echo EOF
+            } >> $GITHUB_OUTPUT
+          else
+            echo "notes=See the assets to download this version and install." >> $GITHUB_OUTPUT
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: ${{ github.ref_name }}
-          releaseBody: |
-            See the assets to download this version and install.
-          releaseBodyPath: UPDATE.md
+          releaseBody: ${{ steps.release-notes.outputs.notes }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

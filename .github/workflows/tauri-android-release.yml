@@ -50,13 +50,11 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.11902837
 
       - name: Extract Android signing key from secrets
-        if: ${{ secrets.ANDROID_KEYSTORE }}
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE }}" > src-tauri/gen/android/release.keystore.base64
           base64 -d src-tauri/gen/android/release.keystore.base64 > src-tauri/gen/android/release.keystore
 
       - name: Sign APK
-        if: ${{ secrets.ANDROID_KEYSTORE }}
         run: |
           ${{ env.ANDROID_HOME }}/build-tools/34.0.0/apksigner sign \
             --ks src-tauri/gen/android/release.keystore \
@@ -70,30 +68,33 @@ jobs:
         id: app-version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Rename APK files
+      - name: Rename signed APK
         run: |
           mkdir -p release-apks
-          # 使用已签名的 APK（如果存在）
-          if [ -f "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk" ]; then
-            cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk \
-               release-apks/yana-${{ steps.app-version.outputs.version }}-universal-release.apk
-            echo "✅ Signed APK ready"
-          # 否则使用未签名的 APK
-          elif [ -f "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk" ]; then
-            cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
-               release-apks/yana-${{ steps.app-version.outputs.version }}-universal-release-unsigned.apk
-            echo "⚠️ Unsigned APK (secrets not configured)"
-          fi
-          # 列出所有生成的文件
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk \
+             release-apks/yana-${{ steps.app-version.outputs.version }}-universal-release.apk
           ls -lh release-apks/
+
+      - name: Read release notes
+        id: release-notes
+        shell: bash
+        run: |
+          if [ -f "UPDATE.md" ]; then
+            {
+              echo "notes<<EOF"
+              cat UPDATE.md
+              echo EOF
+            } >> $GITHUB_OUTPUT
+          else
+            echo "notes=See the assets to download this version and install." >> $GITHUB_OUTPUT
+          fi
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          body: 'See the assets to download this version and install.'
-          body_path: UPDATE.md
+          body: ${{ steps.release-notes.outputs.notes }}
           draft: true
           prerelease: false
           files: |
