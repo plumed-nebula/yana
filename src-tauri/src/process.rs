@@ -405,15 +405,59 @@ fn process_one(
         "process_one start: path={}, quality={}, mode={:?}, png_mode={:?}, png_optimization={:?}",
         path, quality, mode, png_mode, png_optimization
     );
+    // 检测是否在 Android 平台
+    let is_android = cfg!(target_os = "android");
+
     // 读取并判定格式/动图属性
     let bytes = read_all_bytes(path)?;
     let kind = detect_format_and_kind(&bytes)?;
 
     // 在应用专属临时目录创建输出文件（实际路径在 keep() 之后可被持久化）
     let tmp_dir = ensure_app_temp_dir()?;
+
+    // 根据处理结果确定文件扩展名
+    let output_extension = match (&kind, mode) {
+        (DetectedKind::Static(_), Mode::webp) => ".webp",
+        (DetectedKind::Static(fmt), Mode::original_format) => match fmt {
+            ImageFormat::Png => ".png",
+            ImageFormat::Jpeg => ".jpg",
+            ImageFormat::WebP => ".webp",
+            ImageFormat::Gif => ".gif",
+            ImageFormat::Bmp => ".bmp",
+            ImageFormat::Tiff => ".tiff",
+            ImageFormat::Tga => ".tga",
+            ImageFormat::Ico => ".ico",
+            ImageFormat::Pnm => ".pnm",
+            ImageFormat::Dds => ".dds",
+            ImageFormat::Hdr => ".hdr",
+            ImageFormat::OpenExr => ".exr",
+            ImageFormat::Farbfeld => ".ff",
+            ImageFormat::Avif => ".avif",
+            ImageFormat::Qoi => ".qoi",
+            _ => "",
+        },
+        (DetectedKind::Animated(fmt), Mode::webp) => {
+            // Android 上动图不转换
+            if is_android {
+                match fmt {
+                    ImageFormat::Gif => ".gif",
+                    ImageFormat::WebP => ".webp",
+                    _ => "",
+                }
+            } else {
+                ".webp"
+            }
+        }
+        (DetectedKind::Animated(fmt), Mode::original_format) => match fmt {
+            ImageFormat::Gif => ".gif",
+            ImageFormat::WebP => ".webp",
+            _ => "",
+        },
+    };
+
     let mut tmp = TempFileBuilder::new()
         .prefix("yana_")
-        .suffix("")
+        .suffix(output_extension)
         .tempfile_in(&tmp_dir)
         .map_err(|e| format!("tempfile_in: {}", e))?;
 
@@ -441,15 +485,21 @@ fn process_one(
             tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
         }
         (DetectedKind::Animated(fmt), Mode::webp) => {
-            match fmt {
-                ImageFormat::Gif => {
-                    // 转为 WebP：调用 convert_animated_to_webp
-                    let out = convert_gif_to_webp(&app, &bytes, quality)?;
-                    tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
-                }
-                _ => {
-                    // 其他动画格式（如动画 WebP）：透传
-                    tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
+            // Android 平台禁用动图转换
+            if is_android {
+                info!("Android platform: animated image conversion disabled, passthrough original");
+                tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
+            } else {
+                match fmt {
+                    ImageFormat::Gif => {
+                        // 转为 WebP：调用 convert_animated_to_webp
+                        let out = convert_gif_to_webp(&app, &bytes, quality)?;
+                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
+                    }
+                    _ => {
+                        // 其他动画格式（如动画 WebP）：透传
+                        tmp.write_all(&bytes).map_err(|e| format!("write: {}", e))?;
+                    }
                 }
             }
         }
@@ -557,14 +607,58 @@ fn process_data(
         png_mode,
         png_optimization
     );
+    // 检测是否在 Android 平台
+    let is_android = cfg!(target_os = "android");
+
     // 判定格式/动图属性
     let kind = detect_format_and_kind(&data)?;
 
     // 在应用专属临时目录创建输出文件（实际路径在 keep() 之后可被持久化）
     let tmp_dir = ensure_app_temp_dir()?;
+
+    // 根据处理结果确定文件扩展名
+    let output_extension = match (&kind, mode) {
+        (DetectedKind::Static(_), Mode::webp) => ".webp",
+        (DetectedKind::Static(fmt), Mode::original_format) => match fmt {
+            ImageFormat::Png => ".png",
+            ImageFormat::Jpeg => ".jpg",
+            ImageFormat::WebP => ".webp",
+            ImageFormat::Gif => ".gif",
+            ImageFormat::Bmp => ".bmp",
+            ImageFormat::Tiff => ".tiff",
+            ImageFormat::Tga => ".tga",
+            ImageFormat::Ico => ".ico",
+            ImageFormat::Pnm => ".pnm",
+            ImageFormat::Dds => ".dds",
+            ImageFormat::Hdr => ".hdr",
+            ImageFormat::OpenExr => ".exr",
+            ImageFormat::Farbfeld => ".ff",
+            ImageFormat::Avif => ".avif",
+            ImageFormat::Qoi => ".qoi",
+            _ => "",
+        },
+        (DetectedKind::Animated(fmt), Mode::webp) => {
+            // Android 上动图不转换
+            if is_android {
+                match fmt {
+                    ImageFormat::Gif => ".gif",
+                    ImageFormat::WebP => ".webp",
+                    _ => "",
+                }
+            } else {
+                ".webp"
+            }
+        }
+        (DetectedKind::Animated(fmt), Mode::original_format) => match fmt {
+            ImageFormat::Gif => ".gif",
+            ImageFormat::WebP => ".webp",
+            _ => "",
+        },
+    };
+
     let mut tmp = TempFileBuilder::new()
         .prefix("yana_clipboard_")
-        .suffix("")
+        .suffix(output_extension)
         .tempfile_in(&tmp_dir)
         .map_err(|e| format!("tempfile_in: {}", e))?;
 
@@ -592,15 +686,21 @@ fn process_data(
             tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
         }
         (DetectedKind::Animated(fmt), Mode::webp) => {
-            match fmt {
-                ImageFormat::Gif => {
-                    // 转为 WebP：调用 convert_animated_to_webp
-                    let out = convert_gif_to_webp(&app, &data, quality)?;
-                    tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
-                }
-                _ => {
-                    // 其他动画格式（如动画 WebP）：透传
-                    tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
+            // Android 平台禁用动图转换
+            if is_android {
+                info!("Android platform: animated image conversion disabled, passthrough original");
+                tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
+            } else {
+                match fmt {
+                    ImageFormat::Gif => {
+                        // 转为 WebP：调用 convert_animated_to_webp
+                        let out = convert_gif_to_webp(&app, &data, quality)?;
+                        tmp.write_all(&out).map_err(|e| format!("write: {}", e))?;
+                    }
+                    _ => {
+                        // 其他动画格式（如动画 WebP）：透传
+                        tmp.write_all(&data).map_err(|e| format!("write: {}", e))?;
+                    }
                 }
             }
         }

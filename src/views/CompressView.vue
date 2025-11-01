@@ -3,7 +3,9 @@ import { computed, ref } from 'vue';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { basename, dirname, extname, join } from '@tauri-apps/api/path';
 import { invoke } from '@tauri-apps/api/core';
+import { debug as logDebug } from '@tauri-apps/plugin-log';
 import { useSettingsStore } from '../stores/settings';
+import { useDeviceStore } from '../stores/device';
 
 type MessageType = 'info' | 'success' | 'error';
 
@@ -15,6 +17,7 @@ type HistoryItem = {
 };
 
 const settings = useSettingsStore();
+const device = useDeviceStore();
 const busy = ref(false);
 const history = ref<HistoryItem[]>([]);
 const nextId = ref(1);
@@ -66,18 +69,6 @@ function ensureArray(input: string | string[]): string[] {
   return Array.isArray(input) ? input : [input];
 }
 
-async function buildDefaultSavePath(source: string, targetWebp: boolean) {
-  const dir = await dirname(source);
-  const base = await basename(source);
-  const ext = await extname(source);
-  const stem = ext ? base.slice(0, -ext.length - 1) : base;
-
-  const suffix = targetWebp ? 'webp' : ext;
-  const tagged = `${stem}_compressed.${suffix}`;
-
-  return await join(dir, tagged);
-}
-
 async function handleTest() {
   if (busy.value) return;
   if (!settings.ready.value) {
@@ -89,32 +80,50 @@ async function handleTest() {
   pushMessage('info', '选择要测试的图片…');
 
   try {
-    const selected = await open({
-      multiple: false,
-      filters: [
-        {
-          name: 'Images',
-          extensions: [
-            'png',
-            'jpg',
-            'jpeg',
-            'webp',
-            'gif',
-            'bmp',
-            'tiff',
-            'tif',
-          ],
-        },
-      ],
-    });
+    let paths: string[];
 
-    if (!selected) {
-      mutateLatest('info', '已取消选择。');
-      return;
+    // 在 Android 上使用新的文件选择器
+    if (device.currentPlatform === 'android') {
+      const result = await invoke<string>('select_single_image');
+      if (!result) {
+        mutateLatest('info', '已取消选择。');
+        return;
+      }
+      paths = [result];
+    } else {
+      // 其他平台使用原有逻辑
+      const selected = await open({
+        multiple: false,
+        filters: [
+          {
+            name: 'Images',
+            extensions: [
+              'png',
+              'jpg',
+              'jpeg',
+              'webp',
+              'gif',
+              'bmp',
+              'tiff',
+              'tif',
+            ],
+          },
+        ],
+      });
+
+      if (!selected) {
+        mutateLatest('info', '已取消选择。');
+        return;
+      }
+
+      paths = ensureArray(selected);
     }
 
-    const paths = ensureArray(selected);
     const [target] = paths;
+    if (!target) {
+      mutateLatest('error', '未选择有效文件。');
+      return;
+    }
     mutateLatest('info', `已选择：${target}`);
 
     const mode = settings.convertToWebp.value ? 'webp' : 'original_format';
@@ -132,16 +141,75 @@ async function handleTest() {
       throw new Error('后端未返回压缩结果。');
     }
 
-    const defaultSave = await buildDefaultSavePath(
-      target,
-      settings.convertToWebp.value
+    // 源文件列表中的第一个压缩结果（带有正确的扩展名）
+    const compressedFile = outputs[0];
+
+    // 从原始文件名构建目标文件名
+    const originalBase = await basename(target);
+    const originalExt = await extname(target);
+    // extname 返回的可能包含或不包含点号，需要统一处理
+    const normalizedExt = originalExt.startsWith('.')
+      ? originalExt
+      : originalExt
+      ? `.${originalExt}`
+      : '';
+    const originalStem = normalizedExt
+      ? originalBase.slice(0, -normalizedExt.length)
+      : originalBase;
+
+    // 从压缩后的文件获取实际扩展名
+    const compressedExt = await extname(compressedFile);
+    const normalizedCompressedExt = compressedExt.startsWith('.')
+      ? compressedExt
+      : compressedExt
+      ? `.${compressedExt}`
+      : '';
+    const finalFileName = normalizedCompressedExt
+      ? `${originalStem}_compressed${normalizedCompressedExt}`
+      : `${originalStem}_compressed`;
+
+    // 调试日志：打印文件名构建过程
+    await logDebug(
+      `[compress] 文件名构建: originalBase=${originalBase}, originalExt=${originalExt}, normalizedExt=${normalizedExt}, originalStem=${originalStem}, compressedExt=${compressedExt}, normalizedCompressedExt=${normalizedCompressedExt}, finalFileName=${finalFileName}`
     );
 
+    // Android 特判：使用新的后端命令保存到 Download 目录
+    if (device.currentPlatform === 'android') {
+      mutateLatest('info', '正在保存到下载目录…');
+      try {
+        // 使用新的后端命令保存到 Download 目录
+        const savedPath = await invoke<string>('save_to_download_dir', {
+          sourcePath: compressedFile,
+          fileName: finalFileName,
+        });
+
+        mutateLatest('success', `已保存到 ${savedPath}`);
+      } catch (err) {
+        throw new Error(
+          `Android 保存失败: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      }
+      return;
+    }
+
+    // 桌面平台：使用文件对话框让用户选择保存位置
     mutateLatest('info', '选择保存位置…');
+
+    // 构建默认保存路径（带完整路径）
+    const originalDir = await dirname(target);
+    const defaultSaveWithExt = await join(originalDir, finalFileName);
+
     const dest = await save({
-      defaultPath: defaultSave,
-      filters: settings.convertToWebp.value
-        ? [{ name: 'WebP 图片', extensions: ['webp'] }]
+      defaultPath: defaultSaveWithExt,
+      filters: compressedExt
+        ? [
+            {
+              name: `${compressedExt.toUpperCase().slice(1)} 图片`,
+              extensions: [compressedExt.slice(1)],
+            },
+          ]
         : undefined,
     });
 
@@ -202,8 +270,19 @@ async function handleTest() {
           {{ busy ? '处理中…' : '选择图片并测试' }}
         </button>
         <p v-if="!settings.ready.value" class="hint">正在加载设置，请稍候。</p>
+        <p v-else-if="device.currentPlatform === 'android'" class="hint">
+          压缩完成后将自动保存到下载目录。
+        </p>
         <p v-else class="hint">
           将直接调用桌面文件对话框，过程中的临时文件位于系统缓存目录。
+        </p>
+        <p
+          v-if="
+            device.currentPlatform === 'android' && settings.convertToWebp.value
+          "
+          class="warning"
+        >
+          ⚠️ Android 平台暂不支持动图转 WebP，动图将保持原格式。
         </p>
       </section>
     </div>
@@ -330,6 +409,17 @@ header p {
   margin: 0;
   color: var(--text-secondary);
   font-size: 14px;
+}
+
+.warning {
+  margin: 0;
+  color: #ff6b6b;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+  background: rgba(255, 107, 107, 0.1);
+  border-left: 3px solid #ff6b6b;
+  border-radius: 6px;
 }
 
 .history {

@@ -2,6 +2,7 @@
 import { computed, ref, watch, reactive, onMounted, onUnmounted } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { extname } from '@tauri-apps/api/path';
 import {
   debug as logDebug,
   info as logInfo,
@@ -11,6 +12,7 @@ import {
 import { listen } from '@tauri-apps/api/event';
 import { useImageHostStore } from '../stores/imageHosts';
 import { useSettingsStore } from '../stores/settings';
+import { useDeviceStore } from '../stores/device';
 import type { LoadedPlugin } from '../plugins/registry';
 import { arePluginEntriesLoaded } from '../plugins/registry';
 import type { PluginUploadResult } from '../types/imageHostPlugin';
@@ -76,6 +78,7 @@ const props = defineProps<{
 const store = useImageHostStore();
 void store.ensureLoaded();
 const globalSettings = useSettingsStore();
+const device = useDeviceStore();
 
 const plugins = store.plugins;
 const loading = store.loading;
@@ -247,12 +250,12 @@ onMounted(async () => {
     } else {
       try {
         await logDebug?.('[upload] 未找到已保存的图床选择');
-      } catch (e) { }
+      } catch (e) {}
     }
   } catch (e) {
     try {
       await logDebug?.('[upload] 读取本地存储图床选择失败: ' + String(e));
-    } catch (ee) { }
+    } catch (ee) {}
   }
 
   unlistenDrop = await listen<{
@@ -302,7 +305,7 @@ onMounted(async () => {
           if (found) {
             try {
               logDebug?.('[upload] 从 localStorage 应用已保存图床: ' + saved);
-            } catch (e) { }
+            } catch (e) {}
             // 应用但不再次持久化（已来自 localStorage）
             localPluginId.value = saved;
             props.onSelectPlugin?.({ id: saved, navigate: false });
@@ -310,7 +313,7 @@ onMounted(async () => {
           } else {
             try {
               logDebug?.('[upload] 本地保存的图床未在可用插件中找到: ' + saved);
-            } catch (e) { }
+            } catch (e) {}
           }
         }
 
@@ -324,7 +327,7 @@ onMounted(async () => {
               logDebug?.(
                 '[upload] 使用当前内存中的选中值: ' + localPluginId.value
               );
-            } catch (e) { }
+            } catch (e) {}
             props.onSelectPlugin?.({
               id: localPluginId.value,
               navigate: false,
@@ -338,7 +341,7 @@ onMounted(async () => {
           const firstId = pluginList.value[0]!.id;
           try {
             logDebug?.('[upload] 回退到首个可用图床并持久化: ' + firstId);
-          } catch (e) { }
+          } catch (e) {}
           updateSelected(firstId);
         }
       } catch (e) {
@@ -422,7 +425,7 @@ function updateSelected(id: string) {
   } catch (e) {
     try {
       logDebug?.('[upload] 保存选中图床失败: ' + String(e));
-    } catch (ee) { }
+    } catch (ee) {}
   }
   // If actually changed, reset and notify parent
   if (previous !== id) {
@@ -438,11 +441,11 @@ function selectFormat(key: FormatKey) {
     localStorage.setItem(LOCALSTORAGE_KEY_FORMAT, key);
     try {
       logDebug?.('[upload] 保存链接格式: ' + key + ' (之前: ' + prev + ')');
-    } catch (ee) { }
+    } catch (ee) {}
   } catch (e) {
     try {
       logDebug?.('[upload] 保存链接格式失败: ' + String(e));
-    } catch (ee) { }
+    } catch (ee) {}
   }
 }
 
@@ -509,14 +512,6 @@ function supportsWebp(plugin: LoadedPlugin): boolean {
   return false;
 }
 
-function ensureWebpExtension(name: string): string {
-  const dotIndex = name.lastIndexOf('.');
-  if (dotIndex <= 0) {
-    return `${name || 'image'}.webp`;
-  }
-  return `${name.slice(0, dotIndex)}.webp`;
-}
-
 function resolveFilesize(
   metadata: Record<string, unknown> | undefined
 ): number | undefined {
@@ -545,12 +540,23 @@ async function selectFiles(event?: Event) {
   if (!ensurePluginReady()) return;
 
   try {
-    const selection = await open({
-      multiple: true,
-      filters: availableFilters.value,
-    });
-    if (!selection) return;
-    const paths = Array.isArray(selection) ? selection : [selection];
+    let paths: string[];
+
+    // 在 Android 上使用新的文件选择器
+    if (device.currentPlatform === 'android') {
+      const result = await invoke<string[]>('select_multiple_images');
+      if (!result || result.length === 0) return;
+      paths = result;
+    } else {
+      // 其他平台使用原有逻辑
+      const selection = await open({
+        multiple: true,
+        filters: availableFilters.value,
+      });
+      if (!selection) return;
+      paths = Array.isArray(selection) ? selection : [selection];
+    }
+
     await processPaths(paths);
   } catch (error) {
     const message =
@@ -586,6 +592,8 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
   const paths = uniquePaths(rawPaths);
   if (!paths.length) return;
 
+  const resolvedPaths = paths;
+
   const payloadTemplate = JSON.stringify(settings.values ?? {});
 
   resetState({ keepResults: true, keepFormat: true });
@@ -609,46 +617,50 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
     progressResetTimer = null;
   }
 
-  const compressionSteps = compressionEnabled ? paths.length : 0;
-  const uploadSteps = paths.length;
+  const compressionSteps = compressionEnabled ? resolvedPaths.length : 0;
+  const uploadSteps = resolvedPaths.length;
   const initialTotal = compressionEnabled
-    ? compressionSteps + uploadSteps + paths.length
-    : uploadSteps + paths.length;
+    ? compressionSteps + uploadSteps + resolvedPaths.length
+    : uploadSteps + resolvedPaths.length;
   progress.active = true;
   progress.stage = compressionEnabled ? 'compress' : 'upload';
   progress.total = initialTotal;
   progress.completed = 0;
   progress.detail = compressionEnabled
-    ? `准备压缩（共 ${paths.length} 张）…`
-    : `准备上传（共 ${paths.length} 张）…`;
+    ? `准备压缩（共 ${resolvedPaths.length} 张）…`
+    : `准备上传（共 ${resolvedPaths.length} 张）…`;
 
   try {
     const pngMode = globalSettings.pngCompressionMode.value;
     const pngOptimization = globalSettings.pngOptimization.value;
     const quality = globalSettings.quality.value;
 
-    let processedPaths = paths;
+    let processedPaths = resolvedPaths;
     let compressedFileSizes: number[] = [];
 
     if (compressionEnabled) {
       try {
         progress.stage = 'compress';
-        progress.detail = `正在压缩（${paths.length} 张）…`;
+        progress.detail = `正在压缩（${resolvedPaths.length} 张）…`;
         const response = await invoke<string[]>('compress_images', {
-          paths,
+          paths: resolvedPaths,
           quality,
           mode: useWebpMode ? 'webp' : 'original_format',
           pngMode,
           pngOptimization,
         });
-        if (Array.isArray(response) && response.length === paths.length) {
+        if (
+          Array.isArray(response) &&
+          response.length === resolvedPaths.length
+        ) {
           processedPaths = response;
         } else {
           await logWarn(
-            `[upload] 压缩结果数量与输入不符（${response?.length ?? 0} != ${paths.length
+            `[upload] 压缩结果数量与输入不符（${response?.length ?? 0} != ${
+              resolvedPaths.length
             }），已回退原文件。`
           );
-          processedPaths = paths;
+          processedPaths = resolvedPaths;
           useWebpMode = false;
         }
       } catch (error) {
@@ -656,7 +668,7 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
           error instanceof Error ? error.message : String(error ?? '未知错误');
         await logError(`[upload] 压缩阶段失败，已回退原文件: ${message}`);
         errors.push(`压缩失败：${message}`);
-        processedPaths = paths;
+        processedPaths = resolvedPaths;
         useWebpMode = false;
       } finally {
         progress.completed = compressionSteps;
@@ -677,20 +689,36 @@ async function processPaths(rawPaths: Array<string | null | undefined>) {
       }
     }
 
-    const uploadEntries = paths.map((originalPath, index) => {
-      const uploadPath = processedPaths[index] ?? originalPath;
-      const baseName = extractName(originalPath) || `image-${index + 1}`;
-      const shouldRenameToWebp = useWebpMode && uploadPath !== originalPath;
-      const uploadFileName = shouldRenameToWebp
-        ? ensureWebpExtension(baseName)
-        : baseName;
-      return {
-        index,
-        originalPath,
-        uploadPath,
-        uploadFileName,
-      };
-    });
+    const uploadEntries = await Promise.all(
+      paths.map(async (originalPath, index) => {
+        const uploadPath = processedPaths[index] ?? originalPath;
+        const baseName = extractName(originalPath) || `image-${index + 1}`;
+
+        // 从后端返回的压缩文件中提取扩展名
+        let uploadFileName = baseName;
+        if (uploadPath !== originalPath) {
+          // 文件被压缩过，从压缩后的文件路径获取扩展名
+          const compressedExt = await extname(uploadPath);
+          if (compressedExt) {
+            // 规范化扩展名（确保带点号）
+            const normalizedExt = compressedExt.startsWith('.')
+              ? compressedExt
+              : `.${compressedExt}`;
+            // 移除原文件名的扩展名，添加压缩后的扩展名
+            const dotIndex = baseName.lastIndexOf('.');
+            const stem = dotIndex > 0 ? baseName.slice(0, dotIndex) : baseName;
+            uploadFileName = `${stem}${normalizedExt}`;
+          }
+        }
+
+        return {
+          index,
+          originalPath,
+          uploadPath,
+          uploadFileName,
+        };
+      })
+    );
 
     const results: Array<UploadSuccess | UploadFailure | undefined> = new Array(
       uploadEntries.length
@@ -959,33 +987,62 @@ async function generateThumbnailsInBackground(
       <template v-else>
         <div class="selector">
           <label for="plugin-select">图床插件</label>
-          <GlobalSelect id="plugin-select" v-model="localPluginId" :options="pluginOptions" :disabled="uploading"
-            @update:modelValue="updateSelected" />
+          <GlobalSelect
+            id="plugin-select"
+            v-model="localPluginId"
+            :options="pluginOptions"
+            :disabled="uploading"
+            @update:modelValue="updateSelected"
+          />
         </div>
 
-        <div class="dropzone" :class="{
-          active: dragActive,
-          disabled: uploading || !activePlugin,
-        }" @click="selectFiles">
+        <div
+          class="dropzone"
+          :class="{
+            active: dragActive,
+            disabled: uploading || !activePlugin,
+          }"
+          @click="selectFiles"
+        >
           <div class="drop-content">
             <span class="drop-title">
-              {{ uploading ? '正在上传…' : '拖拽文件到窗口任意位置' }}
+              {{ uploading ? '正在上传…' : '选择图片文件' }}
             </span>
             <span class="drop-sub" v-if="activePlugin">
               当前：{{ activePlugin.name }}
             </span>
-            <span class="drop-sub"> 点击以直接选择文件，支持批量上传 </span>
+            <span v-if="device.currentPlatform !== 'android'" class="drop-sub">
+              拖拽文件到窗口或点击以选择
+            </span>
+            <span v-else class="drop-sub"> 点击以选择文件，支持批量上传 </span>
           </div>
         </div>
 
         <div class="actions">
-          <button type="button" class="primary" :disabled="uploading" @click.stop="uploadClipboard" title="从剪贴板上传图片">
+          <!-- 剪贴板上传按钮：仅在非 Android 平台显示 -->
+          <button
+            v-if="device.currentPlatform !== 'android'"
+            type="button"
+            class="primary"
+            :disabled="uploading"
+            @click.stop="uploadClipboard"
+            title="从剪贴板上传图片"
+          >
             <ClipboardCopy class="button-icon" :size="18" :stroke-width="1.6" />
             <span style="vertical-align: middle">{{
               uploading ? '上传中…' : '从剪贴板上传'
             }}</span>
           </button>
-          <button type="button" class="muted" :disabled="!uploadLines.length" @click="clearResults">
+          <!-- Android 平台提示 -->
+          <span v-else class="android-hint">
+            💡 Android 上可从剪贴板选择的应用中长按图片并"粘贴"
+          </span>
+          <button
+            type="button"
+            class="muted"
+            :disabled="!uploadLines.length"
+            @click="clearResults"
+          >
             清空结果
           </button>
         </div>
@@ -993,11 +1050,16 @@ async function generateThumbnailsInBackground(
         <div v-if="progressVisible" class="progress-card">
           <div class="progress-header">
             <span class="stage">{{ progressStageText }}</span>
-            <span class="ratio">{{ Math.min(progress.completed, progress.total) }} /
-              {{ progress.total }}</span>
+            <span class="ratio"
+              >{{ Math.min(progress.completed, progress.total) }} /
+              {{ progress.total }}</span
+            >
           </div>
           <div class="progress-bar">
-            <div class="progress-bar__fill" :style="{ width: progressPercent + '%' }"></div>
+            <div
+              class="progress-bar__fill"
+              :style="{ width: progressPercent + '%' }"
+            ></div>
           </div>
           <div class="progress-detail">{{ progress.detail }}</div>
         </div>
@@ -1011,8 +1073,13 @@ async function generateThumbnailsInBackground(
         <div v-if="uploadLines.length" class="output">
           <div class="format-switcher">
             <div class="format-buttons">
-              <button v-for="[key, label] in formatEntries" :key="key" type="button"
-                :class="['format-button', { active: key === format }]" @click="selectFormat(key)">
+              <button
+                v-for="[key, label] in formatEntries"
+                :key="key"
+                type="button"
+                :class="['format-button', { active: key === format }]"
+                @click="selectFormat(key)"
+              >
                 {{ label }}
               </button>
             </div>
@@ -1022,7 +1089,11 @@ async function generateThumbnailsInBackground(
           </div>
 
           <div class="output-list">
-            <div v-for="line in formattedLines" :key="line.id" class="output-line">
+            <div
+              v-for="line in formattedLines"
+              :key="line.id"
+              class="output-line"
+            >
               <code>{{ line.text }}</code>
               <button type="button" @click="copyLine(line.text)">复制</button>
             </div>
@@ -1126,7 +1197,8 @@ async function generateThumbnailsInBackground(
   position: relative;
   min-height: 190px;
   border: 2px dashed var(--surface-border);
-  border: 2px dashed color-mix(in srgb, var(--surface-border) 60%, var(--accent) 20%);
+  border: 2px dashed
+    color-mix(in srgb, var(--surface-border) 60%, var(--accent) 20%);
   border-radius: 20px;
   background: var(--surface-acrylic);
   background: color-mix(in srgb, var(--surface-acrylic) 90%, transparent);
@@ -1146,9 +1218,12 @@ async function generateThumbnailsInBackground(
   inset: 0;
   border-radius: inherit;
   border: 1px solid transparent;
-  background: linear-gradient(180deg,
+  background: linear-gradient(
+      180deg,
       rgba(255, 255, 255, 0.18),
-      rgba(255, 255, 255, 0)) border-box;
+      rgba(255, 255, 255, 0)
+    )
+    border-box;
   opacity: 0.35;
   pointer-events: none;
 }
@@ -1205,12 +1280,15 @@ async function generateThumbnailsInBackground(
 
 .actions button.primary {
   background: linear-gradient(135deg, var(--accent), rgba(183, 148, 255, 0.92));
-  background: linear-gradient(135deg,
-      var(--accent),
-      color-mix(in srgb, var(--accent) 65%, #b794ff 35%));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 65%, #b794ff 35%)
+  );
   color: #fff;
   box-shadow: 0 14px 32px rgba(122, 163, 255, 0.26);
-  box-shadow: 0 14px 32px color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.35));
+  box-shadow: 0 14px 32px
+    color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.35));
 }
 
 .actions button.primary:disabled {
@@ -1222,7 +1300,8 @@ async function generateThumbnailsInBackground(
 .actions button.primary:not(:disabled):hover {
   transform: translateY(-2px);
   box-shadow: 0 18px 44px rgba(122, 163, 255, 0.32);
-  box-shadow: 0 18px 44px color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.38));
+  box-shadow: 0 18px 44px
+    color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.38));
 }
 
 .actions button.muted {
@@ -1241,6 +1320,14 @@ async function generateThumbnailsInBackground(
   vertical-align: middle;
 }
 
+.android-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 8px 0;
+  flex: 1;
+  min-width: 200px;
+}
+
 .progress-card {
   display: flex;
   flex-direction: column;
@@ -1249,9 +1336,11 @@ async function generateThumbnailsInBackground(
   padding: 16px;
   border-radius: 16px;
   background: var(--surface-acrylic-strong);
-  background: color-mix(in srgb,
-      var(--surface-acrylic-strong) 72%,
-      transparent);
+  background: color-mix(
+    in srgb,
+    var(--surface-acrylic-strong) 72%,
+    transparent
+  );
   border: 1px solid var(--surface-border);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
@@ -1289,9 +1378,11 @@ async function generateThumbnailsInBackground(
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(135deg, var(--accent), rgba(183, 148, 255, 0.92));
-  background: linear-gradient(135deg,
-      var(--accent),
-      color-mix(in srgb, var(--accent) 65%, #b794ff 35%));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 65%, #b794ff 35%)
+  );
   transition: width 0.2s ease;
 }
 
@@ -1343,12 +1434,15 @@ async function generateThumbnailsInBackground(
   border-color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 70%, transparent);
   background: linear-gradient(135deg, var(--accent), rgba(183, 148, 255, 0.92));
-  background: linear-gradient(135deg,
-      var(--accent),
-      color-mix(in srgb, var(--accent) 60%, #b794ff 40%));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 60%, #b794ff 40%)
+  );
   color: #fff;
   box-shadow: 0 12px 30px rgba(122, 163, 255, 0.3);
-  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.35));
+  box-shadow: 0 12px 30px
+    color-mix(in srgb, var(--accent) 30%, rgba(0, 0, 0, 0.35));
 }
 
 .copy-all {

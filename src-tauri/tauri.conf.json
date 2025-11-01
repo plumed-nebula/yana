@@ -36,9 +36,7 @@
     }
   },
   "bundle": {
-    "externalBin": [
-      "bin/gif2webp"
-    ],
+    "externalBin": ["bin/gif2webp"],
     "active": true,
     "targets": "all",
     "resources": {
@@ -59,10 +57,7 @@
         "language": "zh-CN"
       },
       "nsis": {
-        "languages": [
-          "SimpChinese",
-          "English"
-        ],
+        "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": true
       }
     }

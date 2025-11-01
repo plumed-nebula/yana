@@ -16,6 +16,27 @@ export interface LoadedPlugin extends ImageHostPlugin {
   sourceUrl: string;
 }
 
+// 使用 Vite 的 import.meta.glob 静态导入所有插件
+// 这样在 Android 构建时，插件会被打包进主 bundle，无需动态加载
+// 不指定 import，这样可以获取完整的模块对象（支持 default 和命名导出）
+const builtinPluginModules = import.meta.glob<
+  ImageHostPlugin | { default?: ImageHostPlugin }
+>('./*.js', {
+  eager: false,
+});
+
+// 启动时输出已发现的内置插件
+try {
+  const moduleKeys = Object.keys(builtinPluginModules);
+  debug(
+    `[registry] Discovered ${
+      moduleKeys.length
+    } builtin plugin modules: ${moduleKeys.join(', ')}`
+  );
+} catch (e) {
+  /* ignore */
+}
+
 const pluginCache = new Map<string, Promise<LoadedPlugin>>();
 let entriesPromise: Promise<PluginEntry[]> | null = null;
 // cache last loaded entries so callers can check readiness even if the event was
@@ -89,6 +110,19 @@ export function getLoadedPluginEntries(): PluginEntry[] | null {
  * DEV 下通过 HTTP URL；PROD 下通过 convertFileSrc 转换为 tauri.localhost URL。
  */
 function resolvePluginUrl(entry: PluginEntry): string {
+  // 无论开发还是生产模式，都先检查是否是 asset:// 协议（Android）
+  if (entry.script.startsWith('asset://')) {
+    // Android 平台：后端已返回 asset:// URL，直接使用
+    try {
+      debug(
+        `[registry] Using asset:// URL directly for ${entry.id}: ${entry.script}`
+      );
+    } catch (e) {
+      /* ignore */
+    }
+    return entry.script;
+  }
+
   if (import.meta.env.DEV) {
     // If the script looks like an absolute filesystem path (Windows drive letter or leading '/'),
     // use convertFileSrc so that the dev webview can load it via the tauri asset handler.
@@ -108,7 +142,7 @@ function resolvePluginUrl(entry: PluginEntry): string {
       : `/${entry.script}`;
     return new URL(normalized, base).href;
   } else {
-    // 生产模式：使用 convertFileSrc 将资源路径转为可加载的 URL
+    // 桌面平台：使用 convertFileSrc 将文件系统路径转为可加载的 URL
     const url = convertFileSrc(entry.script);
 
     /*
@@ -340,6 +374,49 @@ export async function loadPlugin(entry: PluginEntry): Promise<LoadedPlugin> {
         };
         return stub;
       }
+
+      // 检查是否有静态导入的内置插件（用于 Android 等不支持动态加载的平台）
+      const builtinModulePath = `./${entry.id}.js`;
+      if (builtinPluginModules[builtinModulePath]) {
+        try {
+          debug(
+            `[registry] Loading builtin plugin ${entry.id} from static imports`
+          );
+        } catch (e) {
+          /* ignore */
+        }
+
+        // 使用静态导入的模块
+        const moduleExports = await builtinPluginModules[builtinModulePath]();
+
+        // 处理两种导出格式：export default 和 命名导出
+        const pluginModule: ImageHostPlugin =
+          'default' in moduleExports && moduleExports.default
+            ? moduleExports.default
+            : (moduleExports as ImageHostPlugin);
+
+        if (!pluginModule || typeof pluginModule.upload !== 'function') {
+          throw new Error(`插件 ${entry.id} 缺少上传函数实现`);
+        }
+        if (typeof pluginModule.remove !== 'function') {
+          throw new Error(`插件 ${entry.id} 缺少删除函数实现`);
+        }
+
+        return {
+          id: entry.id,
+          sourceUrl: builtinModulePath,
+          name: pluginModule.name ?? entry.id,
+          author: pluginModule.author,
+          version: pluginModule.version,
+          description: pluginModule.description,
+          supportedFileTypes: pluginModule.supportedFileTypes,
+          parameters: pluginModule.parameters ?? [],
+          upload: pluginModule.upload,
+          remove: pluginModule.remove,
+        } satisfies LoadedPlugin;
+      }
+
+      // 回退到动态加载（桌面平台或用户自定义插件）
       const url = resolvePluginUrl(entry);
       let mod: any;
       try {

@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
+import { useDeviceStore } from './stores/device';
 import { attachConsole, info, error as logError } from '@tauri-apps/plugin-log';
 
 function describeError(err: unknown): string {
@@ -25,5 +26,16 @@ function describeError(err: unknown): string {
 })();
 
 const app = createApp(App);
-app.use(createPinia());
+const pinia = createPinia();
+app.use(pinia);
+
+// initialize device detection as early as possible
+try {
+  const deviceStore = useDeviceStore(pinia as any);
+  // start detection without blocking mount
+  void deviceStore.detectPlatform();
+} catch (e) {
+  // ignore
+}
+
 app.mount('#app');

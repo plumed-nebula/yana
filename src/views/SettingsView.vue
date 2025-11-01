@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue';
+import { useThemeStore } from '../stores/theme';
 import GlobalSelect from '../components/GlobalSelect.vue';
 import { useSettingsStore } from '../stores/settings';
+import { useDeviceStore } from '../stores/device';
 import { invoke } from '@tauri-apps/api/core';
 import { error as logError } from '@tauri-apps/plugin-log';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -14,6 +16,8 @@ interface Props {
 defineProps<Props>();
 
 const settings = useSettingsStore();
+const themeStore = useThemeStore();
+const device = useDeviceStore();
 
 const cacheSizeInBytes = ref(0);
 const isLoadingCacheSize = ref(false);
@@ -135,6 +139,11 @@ async function reloadPlugins() {
 onMounted(() => {
   void loadThumbnailCacheSize();
 });
+
+function onThemeToggle(e: Event) {
+  const target = e.target as HTMLInputElement;
+  themeStore.setTheme(target.checked ? 'dark' : 'light');
+}
 </script>
 
 <template>
@@ -217,6 +226,15 @@ onMounted(() => {
             <span class="title">将图片统一转为 WebP</span>
           </label>
           <p class="help">开启后支持的格式会输出为 WebP，可显著降低体积。</p>
+          <p
+            v-if="
+              device.currentPlatform === 'android' &&
+              settings.convertToWebp.value
+            "
+            class="warning"
+          >
+            ⚠️ Android 平台暂不支持动图转 WebP，动图将保持原格式。
+          </p>
         </div>
       </section>
 
@@ -277,6 +295,37 @@ onMounted(() => {
       </section>
 
       <section class="group-title">
+        <h2>软件</h2>
+        <p>软件更新和其他功能选项。</p>
+      </section>
+
+      <section class="field">
+        <div class="field-actions">
+          <button
+            type="button"
+            @click="onCheckUpdateClick"
+            :disabled="!onCheckUpdateClick"
+          >
+            检查更新
+          </button>
+        </div>
+      </section>
+
+      <section class="field">
+        <div class="toggle">
+          <label>
+            <input
+              type="checkbox"
+              :checked="themeStore.isDark.value"
+              @change="onThemeToggle"
+            />
+            <span class="title">深色模式</span>
+          </label>
+          <p class="help">开启为深色主题，关闭为浅色主题。</p>
+        </div>
+      </section>
+
+      <section class="group-title">
         <h2>图片缓存</h2>
         <p>配置缩略图缓存以加速图库加载和图片预览。</p>
       </section>
@@ -292,7 +341,7 @@ onMounted(() => {
           </label>
           <p class="help">
             启用后，图片上传和图库加载时会自动生成 320×225px 的 WebP
-            缓略图，显著加速界面响应速度。缓存文件存储在应用数据目录，可随时清理。
+            缓略图，显著加速界面响应速度。缓存文件存储在应用数据目录，可随时清理。动图会被缓存为静态缩略图以节省空间。
           </p>
         </div>
       </section>
@@ -324,22 +373,28 @@ onMounted(() => {
         </div>
       </section>
 
+      <section class="group-title">
+        <h2>插件</h2>
+        <p v-if="device.currentPlatform === 'android'">
+          Android 平台的内置图床插件已自动加载。用户插件功能在移动端暂不可用。
+        </p>
+        <p v-else>管理自定义图床插件。</p>
+      </section>
+
+      <section class="field" v-if="device.currentPlatform !== 'android'">
+        <div class="field-actions">
+          <button type="button" @click="loadPlugin">加载插件</button>
+          <button type="button" @click="reloadPlugins">重载插件</button>
+        </div>
+      </section>
+
       <footer>
         <div class="status" :class="{ error: !!settings.error.value }">
           {{ persistenceMessage }}
         </div>
         <div class="buttons">
           <button type="button" @click="openLogDir">打开日志目录</button>
-          <button type="button" @click="loadPlugin">加载插件</button>
           <button type="button" @click="restoreDefaults">恢复默认</button>
-          <button type="button" @click="reloadPlugins">重载插件</button>
-          <button
-            type="button"
-            @click="onCheckUpdateClick"
-            :disabled="!onCheckUpdateClick"
-          >
-            检查更新
-          </button>
         </div>
       </footer>
     </div>
@@ -474,6 +529,17 @@ onMounted(() => {
   font-size: 14px;
 }
 
+.warning {
+  margin: 8px 0 0 0;
+  color: #ff6b6b;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 8px 12px;
+  background: rgba(255, 107, 107, 0.1);
+  border-left: 3px solid #ff6b6b;
+  border-radius: 6px;
+}
+
 .option-group {
   display: grid;
   gap: 12px;
@@ -543,6 +609,39 @@ onMounted(() => {
   background: var(--danger-soft, rgba(255, 68, 68, 0.1));
   border-color: var(--danger, #ff4444);
   color: var(--danger, #ff4444);
+}
+
+.field-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.field-actions button {
+  flex: 1;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-acrylic);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-weight: 600;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  cursor: pointer;
+}
+
+.field-actions button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.field-actions button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.field-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 footer {

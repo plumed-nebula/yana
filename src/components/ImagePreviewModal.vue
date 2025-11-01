@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { Info, ZoomIn, ZoomOut, RotateCcw, X } from 'lucide-vue-next';
 import type { GalleryItem } from '../types/gallery';
+import { useDeviceStore } from '../stores/device';
 
 interface Props {
   item: GalleryItem | null;
@@ -14,6 +15,8 @@ interface Emits {
 
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
+// 用于在移动端检测和优化 UI（参见 @media 查询）
+const device = useDeviceStore();
 
 // 图片信息展示相关
 const showInfo = ref(true);
@@ -223,6 +226,9 @@ const imageContainerStyle = computed(() => ({
   cursor: isDragging.value ? 'grabbing' : 'grab',
 }));
 
+// 检查是否在移动设备上（用于未来的触摸手势支持）
+const isMobileDevice = computed(() => device.isMobile);
+
 // 图片信息
 const imageInfo = computed(() => {
   if (!props.item) return null;
@@ -315,6 +321,7 @@ watch(
 
           <!-- 缩放控制条（右下角） -->
           <div
+            v-if="!isMobileDevice"
             class="zoom-controls"
             :class="{ hidden: !showZoomControls }"
             @mouseenter="handleZoomControlsMouseEnter"
@@ -378,6 +385,12 @@ watch(
   overflow: hidden;
 }
 
+@media (max-width: 768px) {
+  .preview-overlay {
+    padding: 0;
+  }
+}
+
 .preview-dialog {
   max-width: 90vw;
   max-height: 90vh;
@@ -390,6 +403,16 @@ watch(
   align-items: center;
   justify-content: center;
   position: relative;
+}
+
+@media (max-width: 768px) {
+  .preview-dialog {
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
 }
 
 .image-container {
@@ -443,6 +466,16 @@ watch(
 .preview-close:hover {
   color: var(--accent);
   transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+  .preview-close {
+    top: 16px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+  }
 }
 
 /* 图片信息面板 */
@@ -547,6 +580,12 @@ watch(
   border: 1px solid var(--surface-border);
   transition: opacity 0.3s ease;
   opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .zoom-controls {
+    display: none;
+  }
 }
 
 .zoom-controls.hidden {

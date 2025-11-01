@@ -67,11 +67,11 @@ const copyFormatOptions: Array<{
   value: typeof copyFormat.value;
   label: string;
 }> = [
-    { value: 'link', label: '纯链接' },
-    { value: 'html', label: 'HTML' },
-    { value: 'markdown', label: 'Markdown' },
-    { value: 'bbcode', label: 'BBCode' },
-  ];
+  { value: 'link', label: '纯链接' },
+  { value: 'html', label: 'HTML' },
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'bbcode', label: 'BBCode' },
+];
 
 // persist copyFormat changes to localStorage so UploadView can share the same setting
 watch(
@@ -627,13 +627,23 @@ watch(
           <div class="pair">
             <label class="filter-field field-left wide">
               <span class="filter-title">文件名</span>
-              <input v-model="keyword" type="text" placeholder="支持模糊搜索" autocomplete="off" class="control" />
+              <input
+                v-model="keyword"
+                type="text"
+                placeholder="支持模糊搜索"
+                autocomplete="off"
+                class="control"
+              />
             </label>
 
             <label class="filter-field field-right compact">
               <span class="filter-title">图床</span>
-              <GlobalSelect v-model="selectedHost" :options="[{ value: '', label: '全部图床' }, ...hostOptions]"
-                :disabled="hostLoading" class="gallery-select" />
+              <GlobalSelect
+                v-model="selectedHost"
+                :options="[{ value: '', label: '全部图床' }, ...hostOptions]"
+                :disabled="hostLoading"
+                class="gallery-select"
+              />
             </label>
           </div>
 
@@ -642,35 +652,65 @@ watch(
               <div class="pair">
                 <label class="filter-field field-left">
                   <span class="filter-title">开始时间</span>
-                  <input v-model="startDate" type="datetime-local" class="control" />
+                  <input
+                    v-model="startDate"
+                    type="datetime-local"
+                    class="control"
+                  />
                 </label>
 
                 <label class="filter-field field-right">
                   <span class="filter-title">结束时间</span>
-                  <input v-model="endDate" type="datetime-local" class="control" />
+                  <input
+                    v-model="endDate"
+                    type="datetime-local"
+                    class="control"
+                  />
                 </label>
               </div>
 
               <div class="pair">
                 <label class="filter-field field-left">
                   <span class="filter-title">最小大小 (Bytes)</span>
-                  <input v-model="minSize" type="number" min="0" step="1" class="control" />
+                  <input
+                    v-model="minSize"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="control"
+                  />
                 </label>
 
                 <label class="filter-field field-right">
                   <span class="filter-title">最大大小 (Bytes)</span>
-                  <input v-model="maxSize" type="number" min="0" step="1" class="control" />
+                  <input
+                    v-model="maxSize"
+                    type="number"
+                    min="0"
+                    step="1"
+                    class="control"
+                  />
                 </label>
               </div>
             </div>
           </transition>
 
-          <button type="button" class="advanced-toggle" :class="{ active: advancedActive }" @click="toggleAdvanced">
+          <button
+            type="button"
+            class="advanced-toggle"
+            :class="{ active: advancedActive }"
+            @click="toggleAdvanced"
+          >
             {{ showAdvanced ? '收起高级搜索' : '高级搜索' }}
           </button>
 
           <div class="action-row">
-            <button type="button" class="ghost" @click="resetFilters" :disabled="loading">
+            <button
+              type="button"
+              class="ghost"
+              @click="resetFilters"
+              :disabled="loading"
+            >
               重置
             </button>
             <button type="submit" class="primary" :disabled="loading">
@@ -689,11 +729,19 @@ watch(
           <label class="copy-format" title="复制时使用的格式">
             <span class="label">链接选项</span>
             <div class="select-wrapper">
-              <GlobalSelect v-model="copyFormat" :options="copyFormatOptions" class="control" />
+              <GlobalSelect
+                v-model="copyFormat"
+                :options="copyFormatOptions"
+                class="control"
+              />
             </div>
           </label>
-          <button type="button" class="ghost batch-toggle-btn" :class="{ active: batchSelectStore.batchMode }"
-            @click="toggleBatchMode">
+          <button
+            type="button"
+            class="ghost batch-toggle-btn"
+            :class="{ active: batchSelectStore.batchMode }"
+            @click="toggleBatchMode"
+          >
             {{ batchSelectStore.batchMode ? '退出批量选择' : '批量选择' }}
           </button>
         </header>
@@ -709,22 +757,40 @@ watch(
         </div>
 
         <div v-else class="grid">
-          <div v-for="item in items" v-register-card="item.id" :key="item.id" class="card-wrapper" :class="{
-            'batch-active': batchSelectStore.batchMode,
-            'is-dragging': batchSelectStore.isCtrlDragging,
-            selected: batchSelectStore.isSelected(item.id),
-          }" :data-item-id="item.id" @click.stop="
+          <div
+            v-for="item in items"
+            v-register-card="item.id"
+            :key="item.id"
+            class="card-wrapper"
+            :class="{
+              'batch-active': batchSelectStore.batchMode,
+              'is-dragging': batchSelectStore.isCtrlDragging,
+              selected: batchSelectStore.isSelected(item.id),
+            }"
+            :data-item-id="item.id"
+            @click.stop="
               batchSelectStore.batchMode
                 ? batchSelectStore.toggleSelectItem(item.id)
                 : null
-              " @mousedown.stop="(e: any) => handleCardMouseDown(e, item.id)"
-            @click.ctrl.stop="(e: any) => handleCardClick(e, item.id)">
-            <GalleryItemCard :item="item" :showSelection="batchSelectStore.batchMode" :selectedIndex="batchSelectStore.batchMode
-                ? batchSelectStore.selectedIndex(item.id)
-                : null
-              " :isDragging="batchSelectStore.isCtrlDragging" :batchMode="batchSelectStore.batchMode"
-              @preview="openPreview" @copy="handleCopy" @delete="requestDelete"
-              @toggle-select="() => batchSelectStore.toggleSelectItem(item.id)" />
+            "
+            @mousedown.stop="(e: any) => handleCardMouseDown(e, item.id)"
+            @click.ctrl.stop="(e: any) => handleCardClick(e, item.id)"
+          >
+            <GalleryItemCard
+              :item="item"
+              :showSelection="batchSelectStore.batchMode"
+              :selectedIndex="
+                batchSelectStore.batchMode
+                  ? batchSelectStore.selectedIndex(item.id)
+                  : null
+              "
+              :isDragging="batchSelectStore.isCtrlDragging"
+              :batchMode="batchSelectStore.batchMode"
+              @preview="openPreview"
+              @copy="handleCopy"
+              @delete="requestDelete"
+              @toggle-select="() => batchSelectStore.toggleSelectItem(item.id)"
+            />
           </div>
         </div>
         <!-- 批量操作底部横条 -->
@@ -734,18 +800,29 @@ watch(
               已选 {{ batchSelectStore.selectionCount }} 张
             </div>
             <div class="center">
-              <button class="ghost" @click="exportLinksOfSelection" :disabled="!batchSelectStore.selectionCount">
+              <button
+                class="ghost"
+                @click="exportLinksOfSelection"
+                :disabled="!batchSelectStore.selectionCount"
+              >
                 导出链接
               </button>
-              <button class="danger" @click="deleteSelectedItems" :disabled="!batchSelectStore.selectionCount">
+              <button
+                class="danger"
+                @click="deleteSelectedItems"
+                :disabled="!batchSelectStore.selectionCount"
+              >
                 删除
               </button>
-              <button class="ghost" @click="
-                () => {
-                  clearBatchSelection();
-                  toggleBatchMode();
-                }
-              ">
+              <button
+                class="ghost"
+                @click="
+                  () => {
+                    clearBatchSelection();
+                    toggleBatchMode();
+                  }
+                "
+              >
                 取消
               </button>
             </div>
@@ -756,7 +833,11 @@ watch(
 
       <teleport to="body">
         <transition name="preview-fade">
-          <div v-if="confirmTarget" class="confirm-overlay" @click.self="closeConfirm">
+          <div
+            v-if="confirmTarget"
+            class="confirm-overlay"
+            @click.self="closeConfirm"
+          >
             <div class="confirm-dialog">
               <h3>确认删除</h3>
               <p class="message" v-if="confirmTarget && confirmTarget.batchIds">
@@ -769,7 +850,7 @@ watch(
                 确定要删除
                 <strong>{{
                   confirmTarget?.file_name || confirmTarget?.url
-                  }}</strong>
+                }}</strong>
                 吗？
               </p>
               <p class="sub" v-if="confirmTarget && confirmTarget.batchIds">
@@ -783,10 +864,20 @@ watch(
                 {{ confirmError }}
               </p>
               <div class="confirm-actions">
-                <button type="button" class="ghost" @click="closeConfirm" :disabled="deleteLoading">
+                <button
+                  type="button"
+                  class="ghost"
+                  @click="closeConfirm"
+                  :disabled="deleteLoading"
+                >
                   取消
                 </button>
-                <button type="button" class="danger" @click="confirmDeletion" :disabled="deleteLoading">
+                <button
+                  type="button"
+                  class="danger"
+                  @click="confirmDeletion"
+                  :disabled="deleteLoading"
+                >
                   {{ deleteLoading ? '正在删除…' : '删除' }}
                 </button>
               </div>
@@ -796,7 +887,11 @@ watch(
       </teleport>
 
       <!-- 新的预览组件 -->
-      <ImagePreviewModal :item="previewItem" :is-open="!!previewItem" @close="closePreview" />
+      <ImagePreviewModal
+        :item="previewItem"
+        :is-open="!!previewItem"
+        @close="closePreview"
+      />
     </div>
   </div>
 </template>
@@ -826,11 +921,14 @@ watch(
 
 .batch-toggle-btn.active {
   /* active 时借用 primary 的高亮渐变与阴影 */
-  background: linear-gradient(135deg,
-      var(--accent),
-      color-mix(in srgb, var(--accent) 65%, #b794ff 35%));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 65%, #b794ff 35%)
+  );
   color: #fff;
-  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.38));
+  box-shadow: 0 12px 30px
+    color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.38));
   border-color: transparent;
 }
 
@@ -928,7 +1026,7 @@ watch(
   gap: 24px;
 }
 
-.gallery-inner>section {
+.gallery-inner > section {
   width: 100%;
 }
 
@@ -1044,8 +1142,10 @@ watch(
 }
 
 /* 图床选择器聚焦/激活状态，匹配其他输入框 */
-.filter-field.field-right.compact ::v-deep(.gallery-select.open .select-trigger),
-.filter-field.field-right.compact ::v-deep(.gallery-select .select-trigger:focus-within) {
+.filter-field.field-right.compact
+  ::v-deep(.gallery-select.open .select-trigger),
+.filter-field.field-right.compact
+  ::v-deep(.gallery-select .select-trigger:focus-within) {
   border-color: var(--accent) !important;
   border-color: color-mix(in srgb, var(--accent) 70%, transparent) !important;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent) !important;
@@ -1057,6 +1157,12 @@ watch(
   gap: 16px;
 }
 
+@media (max-width: 768px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
 .card-wrapper {
   position: relative;
   cursor: pointer;
@@ -1173,9 +1279,11 @@ watch(
 }
 
 .batch-action-bar .danger {
-  background: linear-gradient(180deg,
-      var(--danger),
-      color-mix(in srgb, var(--danger) 90%, black 10%));
+  background: linear-gradient(
+    180deg,
+    var(--danger),
+    color-mix(in srgb, var(--danger) 90%, black 10%)
+  );
   color: #fff;
   border-color: transparent;
 }
@@ -1252,18 +1360,22 @@ watch(
 .action-row .primary {
   border: none;
   background: linear-gradient(135deg, var(--accent), rgba(183, 148, 255, 0.92));
-  background: linear-gradient(135deg,
-      var(--accent),
-      color-mix(in srgb, var(--accent) 65%, #b794ff 35%));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 65%, #b794ff 35%)
+  );
   color: #fff;
   box-shadow: 0 12px 30px rgba(122, 163, 255, 0.28);
-  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.38));
+  box-shadow: 0 12px 30px
+    color-mix(in srgb, var(--accent) 32%, rgba(0, 0, 0, 0.38));
 }
 
 .action-row .primary:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 18px 44px rgba(122, 163, 255, 0.32);
-  box-shadow: 0 18px 44px color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.4));
+  box-shadow: 0 18px 44px
+    color-mix(in srgb, var(--accent) 40%, rgba(0, 0, 0, 0.4));
 }
 
 .action-row .ghost {
@@ -1574,10 +1686,7 @@ watch(
   display: flex;
   justify-content: center;
   align-items: center;
-  background: rgba(0,
-      0,
-      0,
-      0);
+  background: rgba(0, 0, 0, 0);
   /* background handled inside classes, keep transparent by default */
   z-index: 9999;
   pointer-events: auto;

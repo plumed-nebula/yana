@@ -2,9 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "opener:default",
@@ -23,10 +21,7 @@
     "core:window:allow-start-dragging",
     {
       "identifier": "http:allow-fetch",
-      "allow": [
-        "https://*",
-        "http://*"
-      ]
+      "allow": ["https://*", "http://*"]
     },
     "fs:read-files",
     {

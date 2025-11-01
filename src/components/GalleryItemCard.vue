@@ -97,6 +97,41 @@ const imageSrc = computed(() => {
   // correct double-colon protocol typo
   return raw.replace('https:://', 'https://').replace('http:://', 'http://');
 });
+
+// 长按计时器
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+function handleMouseDown() {
+  if (batchMode?.value) return;
+
+  longPressTimer = setTimeout(() => {
+    // 长按触发选择
+    emit('toggle-select');
+  }, 500);
+}
+
+function handleMouseUp() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+}
+
+function handleTouchStart() {
+  if (batchMode?.value) return;
+
+  longPressTimer = setTimeout(() => {
+    // 长按触发选择
+    emit('toggle-select');
+  }, 500);
+}
+
+function handleTouchEnd() {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+}
 </script>
 
 <template>
@@ -108,6 +143,10 @@ const imageSrc = computed(() => {
     @click="handlePreview"
     @keydown.enter.prevent="handlePreview"
     @keydown.space.prevent="handlePreview"
+    @mousedown="handleMouseDown"
+    @mouseup="handleMouseUp"
+    @touchstart="handleTouchStart"
+    @touchend="handleTouchEnd"
   >
     <div class="image-wrapper">
       <img :src="imageSrc" :alt="displayName" loading="lazy" />
@@ -168,9 +207,11 @@ const imageSrc = computed(() => {
   position: relative;
 }
 
-.card:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-strong);
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-strong);
+  }
 }
 
 .card:focus-visible {
@@ -203,12 +244,16 @@ const imageSrc = computed(() => {
   opacity: 0;
   transform: translateY(-4px);
   transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
 }
 
-.card:hover .delete-btn,
-.card:focus-within .delete-btn {
-  opacity: 1;
-  transform: translateY(0);
+@media (hover: hover) {
+  .card:hover .delete-btn,
+  .card:focus-within .delete-btn {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
 }
 
 .card-overlay {
@@ -224,10 +269,12 @@ const imageSrc = computed(() => {
   pointer-events: none;
 }
 
-.card:hover .card-overlay,
-.card:focus-within .card-overlay {
-  opacity: 1;
-  transform: translateY(0);
+@media (hover: hover) {
+  .card:hover .card-overlay,
+  .card:focus-within .card-overlay {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .overlay-content {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import Sidebar from './components/Sidebar.vue';
+import BottomBar from './components/BottomBar.vue';
 import Titlebar from './components/Titlebar.vue';
 import SettingsView from './views/SettingsView.vue';
 import CompressView from './views/CompressView.vue';
@@ -10,8 +11,8 @@ import ImageHostSettingsView from './views/ImageHostSettingsView.vue';
 import { useImageHostStore } from './stores/imageHosts';
 import { useThemeStore } from './stores/theme';
 import type { LoadedPlugin } from './plugins/registry';
-import { platform } from '@tauri-apps/plugin-os';
-import { warn, info, error as logError } from '@tauri-apps/plugin-log';
+import { info, error as logError } from '@tauri-apps/plugin-log';
+import { useDeviceStore } from './stores/device';
 import { getVersion } from '@tauri-apps/api/app';
 import { fetch } from '@tauri-apps/plugin-http';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -34,34 +35,7 @@ const shellClasses = computed(() => ({
   'theme-light': !themeStore.isDark.value,
 }));
 
-const MOBILE_PLATFORMS = new Set(['android', 'ios']);
-const isMobile = ref(false);
-
-const determinePlatform = async () => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  if (!('__TAURI__' in window)) {
-    isMobile.value = false;
-    return;
-  }
-
-  try {
-    const currentPlatform = await platform();
-    if (currentPlatform) {
-      isMobile.value = MOBILE_PLATFORMS.has(currentPlatform.toLowerCase());
-      return;
-    }
-  } catch (error) {
-    // console.warn('Failed to detect platform via Tauri OS plugin', error);
-    await warn(
-      `[App] Failed to detect platform via Tauri OS plugin: ${String(error)}`
-    );
-  }
-
-  isMobile.value = false;
-};
+const deviceStore = useDeviceStore();
 
 const current = ref<ViewKey>('upload');
 function onNavigate(key: ViewKey) {
@@ -420,7 +394,7 @@ function normalizeVersion(version: string | null | undefined): string {
 // ========== End of version check state and logic ==========
 
 onMounted(() => {
-  void determinePlatform();
+  void deviceStore.detectPlatform();
   void imageHostStore.ensureLoaded();
   // 自动检查版本
   void checkForUpdates(true);
@@ -491,9 +465,10 @@ const viewProps = computed(() => {
 
 <template>
   <div class="app-shell" :class="shellClasses">
-    <Titlebar v-if="!isMobile" />
+    <Titlebar v-if="!deviceStore.isMobile" />
     <div class="layout">
       <Sidebar
+        v-if="!deviceStore.isMobile"
         :current="current"
         :plugins="pluginList"
         :selected-plugin-id="selectedPluginId"
@@ -501,7 +476,19 @@ const viewProps = computed(() => {
         @navigate="onNavigate"
         @select-plugin="onSelectPlugin"
       />
-      <section class="content">
+      <BottomBar
+        v-if="deviceStore.isMobile"
+        :current="current"
+        :plugins="pluginList"
+        :selected-plugin-id="selectedPluginId"
+        :plugin-loading="pluginLoading"
+        @navigate="onNavigate"
+        @select-plugin="onSelectPlugin"
+      />
+      <section
+        class="content"
+        :class="{ 'mobile-compact': deviceStore.isMobile }"
+      >
         <component :is="activeComponent" v-bind="viewProps" />
       </section>
     </div>
@@ -597,6 +584,13 @@ const viewProps = computed(() => {
   display: flex;
   flex-direction: column;
   backdrop-filter: blur(18px);
+}
+
+/* Compact padding for mobile devices to increase usable area */
+.content.mobile-compact {
+  padding: 10px 12px;
+  /* 留出底栏空间：底栏高度 64px + 一点额外间距 */
+  padding-bottom: 74px;
 }
 
 .content > * {

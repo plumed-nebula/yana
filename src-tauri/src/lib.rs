@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod file_picker;
 mod gallery;
 mod image_hosts;
 mod process;
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_android_fs::init())
         // 日志：根据环境选择输出目标与日志级别，开发环境输出到控制台/前端，生产仅写文件
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -80,6 +82,9 @@ pub fn run() {
             thumbnail::get_thumbnail_path,
             thumbnail::clear_thumbnail_cache,
             thumbnail::get_thumbnail_cache_size,
+            file_picker::select_single_image,
+            file_picker::select_multiple_images,
+            file_picker::save_to_download_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

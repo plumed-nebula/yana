@@ -123,32 +123,91 @@ fn collect_plugins_from_dir(
 }
 
 fn discover_plugins(app: &tauri::AppHandle) -> Result<Vec<PluginEntryPayload>, String> {
-    let mut collected = BTreeMap::new();
-    let dirs = candidate_plugin_dirs(app);
-    for dir in dirs {
-        if let Err(err) = collect_plugins_from_dir(&dir, &mut collected) {
-            warn!(
-                "collect_plugins_from_dir failed for {}: {}",
-                dir.display(),
-                err
-            );
+    // Android 平台：使用硬编码插件列表，因为无法通过 std::fs 遍历 APK assets
+    #[cfg(target_os = "android")]
+    let mut result: Vec<PluginEntryPayload> = {
+        let mut plugins = Vec::new();
+
+        // 硬编码的内置插件列表
+        let builtin_plugins = ["freeimagehost", "sda1", "smms"];
+
+        // 尝试从 Resource 目录获取基础路径
+        if let Ok(resource_path) = app.path().resolve("plugins", BaseDirectory::Resource) {
+            let base_path = resource_path
+                .to_str()
+                .unwrap_or("asset://localhost/plugins");
+            debug!("Android: resolved plugins base path: {}", base_path);
+            for plugin_id in &builtin_plugins {
+                let script_path = format!("{}/{}.js", base_path, plugin_id);
+                debug!(
+                    "Android: adding builtin plugin {} with path: {}",
+                    plugin_id, script_path
+                );
+                plugins.push(PluginEntryPayload {
+                    id: plugin_id.to_string(),
+                    script: script_path,
+                });
+            }
         }
-    }
 
-    let mut result: Vec<PluginEntryPayload> = collected
-        .into_iter()
-        .map(|(id, path)| {
-            let mut script_path = path.to_str().unwrap_or("").to_string();
-            if script_path.starts_with("\\\\?\\") {
-                script_path = script_path[4..].to_string();
+        // 同时检查用户插件目录（这个可以正常访问）
+        if let Ok(config_dir) = app.path().app_config_dir() {
+            let user_plugin_dir = config_dir.join("plugins");
+            let mut user_collected = BTreeMap::new();
+            if let Err(err) = collect_plugins_from_dir(&user_plugin_dir, &mut user_collected) {
+                debug!(
+                    "collect_plugins_from_dir failed for user plugins {}: {}",
+                    user_plugin_dir.display(),
+                    err
+                );
             }
-            PluginEntryPayload {
-                id,
-                script: script_path,
+            for (id, path) in user_collected {
+                let script_path = path.to_str().unwrap_or("").to_string();
+                plugins.push(PluginEntryPayload {
+                    id,
+                    script: script_path,
+                });
             }
-        })
-        .collect();
+        }
 
+        info!(
+            "Android: discovered {} plugins (builtin + user)",
+            plugins.len()
+        );
+        plugins
+    };
+
+    // 桌面平台：保持原有的动态发现逻辑
+    #[cfg(not(target_os = "android"))]
+    let mut result: Vec<PluginEntryPayload> = {
+        let mut collected = BTreeMap::new();
+        let dirs = candidate_plugin_dirs(app);
+        for dir in dirs {
+            if let Err(err) = collect_plugins_from_dir(&dir, &mut collected) {
+                warn!(
+                    "collect_plugins_from_dir failed for {}: {}",
+                    dir.display(),
+                    err
+                );
+            }
+        }
+
+        collected
+            .into_iter()
+            .map(|(id, path)| {
+                let mut script_path = path.to_str().unwrap_or("").to_string();
+                if script_path.starts_with("\\\\?\\") {
+                    script_path = script_path[4..].to_string();
+                }
+                PluginEntryPayload {
+                    id,
+                    script: script_path,
+                }
+            })
+            .collect()
+    };
+
+    // 添加内置 S3 插件（所有平台）
     if !result.iter().any(|entry| entry.id == "s3") {
         result.push(PluginEntryPayload {
             id: "s3".to_string(),
