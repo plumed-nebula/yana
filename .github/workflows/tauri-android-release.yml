@@ -81,9 +81,12 @@ jobs:
         run: |
           if [ -f "UPDATE.md" ]; then
             delimiter="ghadelimiter_$(uuidgen)"
-            echo "notes<<${delimiter}" >> $GITHUB_OUTPUT
-            cat UPDATE.md >> $GITHUB_OUTPUT
-            echo "${delimiter}" >> $GITHUB_OUTPUT
+            {
+              echo "notes<<${delimiter}"
+              cat UPDATE.md
+              echo ""
+              echo "${delimiter}"
+            } >> $GITHUB_OUTPUT
           else
             echo "notes=See the assets to download this version and install." >> $GITHUB_OUTPUT
           fi
