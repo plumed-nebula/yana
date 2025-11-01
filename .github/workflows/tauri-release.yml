@@ -6,55 +6,54 @@ on:
       - "v*"
 
 jobs:
-  build-windows:
-    name: Build and create Windows release
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
 
-      - name: Setup Node.js
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: lts/*
+          cache: 'npm'
 
-      - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
+          workspaces: './src-tauri -> target'
 
-      - name: Install dependencies
-        run: |
-          npm ci
+      - name: install frontend dependencies
+        run: npm ci
 
-      - name: Install Windows bundler tools (NSIS, WiX)
-        if: runner.os == 'Windows'
-        run: |
-          choco install -y nsis
-          choco install -y wixtoolset
-
-      - name: Build Tauri bundle
-        env:
-          CI: true
-        run: |
-          npm run tauri build
-
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: ${{ github.ref_name }}
-          body_path: UPDATE.md
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v1
         with:
-          files: |
-            src-tauri/target/release/bundle/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
+          releaseBody: |
+            See the assets to download this version and install.
+          releaseBodyPath: UPDATE.md
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
