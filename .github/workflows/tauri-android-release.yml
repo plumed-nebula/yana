@@ -80,11 +80,10 @@ jobs:
         shell: bash
         run: |
           if [ -f "UPDATE.md" ]; then
-            {
-              echo "notes<<EOF"
-              cat UPDATE.md
-              echo "EOF"
-            } >> $GITHUB_OUTPUT
+            delimiter="ghadelimiter_$(uuidgen)"
+            echo "notes<<${delimiter}" >> $GITHUB_OUTPUT
+            cat UPDATE.md >> $GITHUB_OUTPUT
+            echo "${delimiter}" >> $GITHUB_OUTPUT
           else
             echo "notes=See the assets to download this version and install." >> $GITHUB_OUTPUT
           fi
