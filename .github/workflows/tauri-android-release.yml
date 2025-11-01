@@ -83,7 +83,7 @@ jobs:
             {
               echo "notes<<EOF"
               cat UPDATE.md
-              echo EOF
+              echo "EOF"
             } >> $GITHUB_OUTPUT
           else
             echo "notes=See the assets to download this version and install." >> $GITHUB_OUTPUT
