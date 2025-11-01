@@ -44,10 +44,27 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
-      - name: Build Android APK
-        run: npm run tauri android build
+      - name: Build Android APK (Release)
+        run: npm run tauri android build --release
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.11902837
+
+      - name: Extract Android signing key from secrets
+        if: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE }}" > src-tauri/gen/android/release.keystore.base64
+          base64 -d src-tauri/gen/android/release.keystore.base64 > src-tauri/gen/android/release.keystore
+
+      - name: Sign APK
+        if: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          ${{ env.ANDROID_HOME }}/build-tools/34.0.0/apksigner sign \
+            --ks src-tauri/gen/android/release.keystore \
+            --ks-key-alias ${{ secrets.ANDROID_KEY_ALIAS }} \
+            --ks-pass pass:${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
+            --key-pass pass:${{ secrets.ANDROID_KEY_PASSWORD }} \
+            --out src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk \
+            src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
 
       - name: Get app version
         id: app-version
@@ -56,15 +73,16 @@ jobs:
       - name: Rename APK files
         run: |
           mkdir -p release-apks
-          # 重命名 release APK（如果存在）
-          if [ -f "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk" ]; then
-            cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
+          # 使用已签名的 APK（如果存在）
+          if [ -f "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk" ]; then
+            cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-signed.apk \
                release-apks/yana-${{ steps.app-version.outputs.version }}-universal-release.apk
-          fi
-          # 重命名 debug APK（如果存在）
-          if [ -f "src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk" ]; then
-            cp src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk \
-               release-apks/yana-${{ steps.app-version.outputs.version }}-universal-debug.apk
+            echo "✅ Signed APK ready"
+          # 否则使用未签名的 APK
+          elif [ -f "src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk" ]; then
+            cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk \
+               release-apks/yana-${{ steps.app-version.outputs.version }}-universal-release-unsigned.apk
+            echo "⚠️ Unsigned APK (secrets not configured)"
           fi
           # 列出所有生成的文件
           ls -lh release-apks/
