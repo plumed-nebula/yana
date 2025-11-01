@@ -202,6 +202,72 @@ function closePreview() {
   emit('close');
 }
 
+// 触摸手势支持
+let touches: Touch[] = [];
+let initialPinchDistance = 0;
+let initialScale = 1;
+let lastTouchTime = 0;
+let touchStartX = 0;
+let touchStartY = 0;
+
+function getTouchDistance(touch1: Touch, touch2: Touch): number {
+  const dx = touch1.clientX - touch2.clientX;
+  const dy = touch1.clientY - touch2.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function handleTouchStart(e: TouchEvent) {
+  touches = Array.from(e.touches);
+
+  if (touches.length === 2) {
+    // 双指触摸 - 准备缩放
+    initialPinchDistance = getTouchDistance(touches[0], touches[1]);
+    initialScale = scale.value;
+  } else if (touches.length === 1) {
+    // 单指触摸 - 检测双击或拖动
+    const now = Date.now();
+    const touch = touches[0];
+
+    // 双击检测
+    if (now - lastTouchTime < 300) {
+      // 双击缩放
+      if (scale.value === 1) {
+        handleZoom(1); // 放大到 2x
+      } else {
+        resetImage(); // 重置
+      }
+    }
+
+    lastTouchTime = now;
+    touchStartX = touch.clientX - dragOffsetX.value;
+    touchStartY = touch.clientY - dragOffsetY.value;
+  }
+}
+
+function handleTouchMove(e: TouchEvent) {
+  if (e.touches.length === 2) {
+    // 双指缩放
+    e.preventDefault();
+    const currentDistance = getTouchDistance(e.touches[0], e.touches[1]);
+    const scaleChange = currentDistance / initialPinchDistance;
+    const newScale = Math.max(
+      MIN_SCALE,
+      Math.min(MAX_SCALE, initialScale * scaleChange)
+    );
+    scale.value = newScale;
+  } else if (e.touches.length === 1 && scale.value > 1) {
+    // 单指拖动（仅在放大时）
+    e.preventDefault();
+    const touch = e.touches[0];
+    dragOffsetX.value = touch.clientX - touchStartX;
+    dragOffsetY.value = touch.clientY - touchStartY;
+  }
+}
+
+function handleTouchEnd() {
+  touches = [];
+}
+
 onMounted(() => {
   // 全局监听键盘事件
   document.addEventListener('keydown', handleKeyDown);
@@ -300,6 +366,9 @@ watch(
           @mousedown="handleMouseDown"
           @mousemove="handleDialogMouseMove"
           @wheel.prevent="handleWheel"
+          @touchstart.prevent="handleTouchStart"
+          @touchmove.prevent="handleTouchMove"
+          @touchend.prevent="handleTouchEnd"
         >
           <div class="image-container" :style="imageContainerStyle">
             <!-- 加载动画 -->

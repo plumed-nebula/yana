@@ -1034,9 +1034,9 @@ async function generateThumbnailsInBackground(
             }}</span>
           </button>
           <!-- Android 平台提示 -->
-          <span v-else class="android-hint">
+          <!-- <span v-else class="android-hint">
             💡 Android 上可从剪贴板选择的应用中长按图片并"粘贴"
-          </span>
+          </span> -->
           <button
             type="button"
             class="muted"

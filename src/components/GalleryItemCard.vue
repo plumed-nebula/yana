@@ -55,6 +55,12 @@ function handlePreview(e?: Event) {
   // 如果正在进行 Ctrl 拖拽，不触发预览
   if (isDragging?.value) return;
 
+  // 如果刚刚触发了长按，不触发预览
+  if (longPressTriggered) {
+    longPressTriggered = false;
+    return;
+  }
+
   try {
     // only inspect for badge when this is a MouseEvent (keyboard events shouldn't check)
     if (e instanceof MouseEvent) {
@@ -100,11 +106,15 @@ const imageSrc = computed(() => {
 
 // 长按计时器
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let longPressTriggered = false;
+let touchMoved = false;
 
 function handleMouseDown() {
   if (batchMode?.value) return;
 
+  longPressTriggered = false;
   longPressTimer = setTimeout(() => {
+    longPressTriggered = true;
     // 长按触发选择
     emit('toggle-select');
   }, 500);
@@ -117,19 +127,50 @@ function handleMouseUp() {
   }
 }
 
-function handleTouchStart() {
+function handleTouchStart(e: TouchEvent) {
   if (batchMode?.value) return;
 
+  touchMoved = false;
+  longPressTriggered = false;
+
   longPressTimer = setTimeout(() => {
-    // 长按触发选择
-    emit('toggle-select');
+    if (!touchMoved) {
+      longPressTriggered = true;
+      // 长按触发选择
+      emit('toggle-select');
+      // 触发震动反馈（如果支持）
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+      // 阻止后续的上下文菜单
+      e.preventDefault();
+    }
   }, 500);
 }
 
-function handleTouchEnd() {
+function handleTouchMove() {
+  // 标记手指移动了
+  touchMoved = true;
+
+  // 如果手指移动，取消长按
   if (longPressTimer) {
     clearTimeout(longPressTimer);
     longPressTimer = null;
+  }
+}
+
+function handleTouchEnd(e: TouchEvent) {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+
+  // 如果触发了长按，阻止点击事件
+  if (longPressTriggered) {
+    e.preventDefault();
+    setTimeout(() => {
+      longPressTriggered = false;
+    }, 100);
   }
 }
 </script>
@@ -146,6 +187,7 @@ function handleTouchEnd() {
     @mousedown="handleMouseDown"
     @mouseup="handleMouseUp"
     @touchstart="handleTouchStart"
+    @touchmove="handleTouchMove"
     @touchend="handleTouchEnd"
   >
     <div class="image-wrapper">
@@ -205,6 +247,11 @@ function handleTouchEnd() {
   cursor: pointer;
   outline: none;
   position: relative;
+  /* 移动端优化 */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
 }
 
 @media (hover: hover) {

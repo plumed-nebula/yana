@@ -2,6 +2,7 @@ package com.yana.dev
 
 import android.os.Bundle
 import android.os.Build
+import android.view.WindowManager
 import androidx.activity.enableEdgeToEdge
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -15,6 +16,13 @@ class MainActivity : TauriActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
+    
+    // 隐藏状态栏
+    window.setFlags(
+      WindowManager.LayoutParams.FLAG_FULLSCREEN,
+      WindowManager.LayoutParams.FLAG_FULLSCREEN
+    )
+    
     super.onCreate(savedInstanceState)
 
     // Proactively request runtime permissions needed for file/network access on Android

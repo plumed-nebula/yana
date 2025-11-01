@@ -188,6 +188,18 @@ function toggleBatchMode() {
 }
 
 /**
+ * 处理长按触发的选择（自动进入批量模式）
+ */
+function handleToggleSelect(itemId: number) {
+  // 如果还没进入批量模式，先进入
+  if (!batchSelectStore.batchMode) {
+    batchSelectStore.toggleBatchMode();
+  }
+  // 然后选中这个项目
+  batchSelectStore.toggleSelectItem(itemId);
+}
+
+/**
  * 清空选择
  */
 function clearBatchSelection() {
@@ -789,7 +801,7 @@ watch(
               @preview="openPreview"
               @copy="handleCopy"
               @delete="requestDelete"
-              @toggle-select="() => batchSelectStore.toggleSelectItem(item.id)"
+              @toggle-select="handleToggleSelect(item.id)"
             />
           </div>
         </div>
